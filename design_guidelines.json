@@ -1,0 +1,177 @@
+{
+  "theme_name": "The Curator's Studio",
+  "emotional_tone": "Efficient, Aesthetic, Inspiring, Organized",
+  "typography": {
+    "headings": {
+      "family": "Outfit, sans-serif",
+      "weights": ["500", "600", "700"],
+      "sizes": {
+        "h1": "text-4xl md:text-5xl tracking-tight font-bold",
+        "h2": "text-3xl md:text-4xl tracking-tight font-semibold",
+        "h3": "text-2xl md:text-3xl font-medium",
+        "h4": "text-xl font-medium"
+      },
+      "usage": "Use for all page titles, section headers, and the main 'Quote' text on the generated pins."
+    },
+    "body": {
+      "family": "Manrope, sans-serif",
+      "weights": ["400", "500"],
+      "sizes": {
+        "base": "text-base leading-relaxed",
+        "sm": "text-sm leading-relaxed",
+        "xs": "text-xs tracking-wide uppercase"
+      },
+      "usage": "Use for all UI elements, inputs, descriptions, and metadata display."
+    }
+  },
+  "colors": {
+    "palette": {
+      "primary": {
+        "DEFAULT": "#E60023",
+        "foreground": "#FFFFFF",
+        "hover": "#AD081B",
+        "description": "Pinterest Red - Use strictly for primary actions (Generate, Download) and brand alignment."
+      },
+      "secondary": {
+        "DEFAULT": "#1F2937",
+        "foreground": "#FFFFFF",
+        "description": "Slate 900 - Use for high-contrast UI elements, headings, and distinct buttons."
+      },
+      "accent": {
+        "DEFAULT": "#F3F4F6",
+        "foreground": "#111827",
+        "description": "Cool Gray 100 - Use for backgrounds, secondary buttons, and input fields."
+      },
+      "background": {
+        "DEFAULT": "#FFFFFF",
+        "alt": "#FAFAFA",
+        "description": "Pure White for the canvas, Off-White for sidebar/panels."
+      },
+      "success": {
+        "DEFAULT": "#10B981",
+        "description": "Emerald Green - Use for 'Completed' status and success toasts."
+      },
+      "warning": {
+        "DEFAULT": "#F59E0B",
+        "description": "Amber - Use for 'Processing' status."
+      },
+      "border": {
+        "DEFAULT": "#E5E7EB",
+        "focus": "#E60023"
+      }
+    },
+    "gradients": {
+      "hero": "bg-gradient-to-br from-red-50 to-white",
+      "loading": "bg-gradient-to-r from-gray-100 to-gray-200 animate-pulse"
+    }
+  },
+  "visual_enhancers": {
+    "shadows": {
+      "card": "shadow-[0_2px_8px_rgba(0,0,0,0.08)]",
+      "floating": "shadow-[0_8px_30px_rgb(0,0,0,0.12)]",
+      "hover": "hover:shadow-[0_8px_30px_rgb(0,0,0,0.12)] transition-shadow duration-300"
+    },
+    "borders": {
+      "default": "border border-gray-200",
+      "active": "border-2 border-primary",
+      "subtle": "border-b border-gray-100"
+    },
+    "radius": {
+      "default": "rounded-xl",
+      "button": "rounded-full",
+      "input": "rounded-lg"
+    }
+  },
+  "layout_strategy": {
+    "dashboard": {
+      "structure": "Sidebar + Main Content Area",
+      "sidebar_width": "w-64",
+      "main_padding": "p-8 md:p-12",
+      "max_width": "max-w-7xl mx-auto"
+    },
+    "grid_system": {
+      "gallery": "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6",
+      "form": "grid grid-cols-1 md:grid-cols-2 gap-8"
+    }
+  },
+  "components_map": {
+    "FileUpload": {
+      "path": "/app/frontend/src/components/ui/file-upload.jsx",
+      "style": "Border-dashed border-2 border-gray-300 rounded-xl p-12 text-center hover:border-primary/50 transition-colors bg-gray-50/50"
+    },
+    "PinCard": {
+      "path": "/app/frontend/src/components/PinCard.jsx",
+      "specs": {
+        "aspect_ratio": "aspect-[2/3]",
+        "structure": [
+          "Top: Image (Cover, h-full w-full absolute)",
+          "Middle: Quote Text (Centered, Z-index 10, relative, drop-shadow-md, font-bold)",
+          "Bottom: White Bar (Absolute bottom, w-full, h-16, flex center, Z-index 20)"
+        ]
+      }
+    },
+    "ProgressBar": {
+      "path": "/app/frontend/src/components/ui/progress.jsx",
+      "style": "h-2 rounded-full bg-gray-100 indicator-primary"
+    },
+    "MetadataPanel": {
+      "path": "/app/frontend/src/components/MetadataPanel.jsx",
+      "style": "Fixed right or Modal, Glassmorphism background"
+    }
+  },
+  "mock_data": {
+    "images": [
+      {
+        "url": "https://images.unsplash.com/photo-1681043854148-fe897823dc69?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1OTV8MHwxfHNlYXJjaHwzfHxhZXN0aGV0aWMlMjB2ZXJ0aWNhbCUyMGJhY2tncm91bmQlMjBtaW5pbWFsaXN0JTIwYWJzdHJhY3QlMjBuYXR1cmV8ZW58MHx8fHwxNzczNjM3NTczfDA&ixlib=rb-4.1.0&q=85",
+        "category": "Architecture"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1681041318320-1ed7a6fa376c?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1OTV8MHwxfHNlYXJjaHwyfHxhZXN0aGV0aWMlMjB2ZXJ0aWNhbCUyMGJhY2tncm91bmQlMjBtaW5pbWFsaXN0JTIwYWJzdHJhY3QlMjBuYXR1cmV8ZW58MHx8fHwxNzczNjM3NTczfDA&ixlib=rb-4.1.0&q=85",
+        "category": "Minimalist"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1657718816787-b58cce8503d2?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1OTV8MHwxfHNlYXJjaHw0fHxhZXN0aGV0aWMlMjB2ZXJ0aWNhbCUyMGJhY2tncm91bmQlMjBtaW5pbWFsaXN0JTIwYWJzdHJhY3QlMjBuYXR1cmV8ZW58MHx8fHwxNzczNjM3NTczfDA&ixlib=rb-4.1.0&q=85",
+        "category": "Nature"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1770675672063-01c42afa8076?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1OTV8MHwxfHNlYXJjaHwxfHxhZXN0aGV0aWMlMjB2ZXJ0aWNhbCUyMGJhY2tncm91bmQlMjBtaW5pbWFsaXN0JTIwYWJzdHJhY3QlMjBuYXR1cmV8ZW58MHx8fHwxNzczNjM3NTczfDA&ixlib=rb-4.1.0&q=85",
+        "category": "Abstract"
+      }
+    ]
+  },
+  "instructions_to_main_agent": {
+    "general": [
+      "Use 'sonner' for all notifications (Upload success, Generation complete).",
+      "Use 'lucide-react' for icons (Upload, Download, Image, Sparkles).",
+      "Ensure the 'PinCard' component strictly follows the visual structure defined in the problem statement.",
+      "The 'Generate' button should trigger a mock process that iterates through the Excel rows and assigns one of the mock images randomly.",
+      "Include a 'dark mode' toggle in the sidebar, but optimize for 'Light Mode' as the default."
+    ],
+    "pin_generation_logic": [
+      "For MOCK generation: Use the provided Unsplash URLs as the 'AI Generated Image'.",
+      "If a user uploads a template, ignore the mock images and use the template.",
+      "The 'Quote' text must be centered and have a subtle text-shadow to ensure readability over the background image.",
+      "The 'Bottom White Bar' must be absolutely positioned at the bottom, 15-20% height of the card, with the text 'Tap to learn more'."
+    ],
+    "excel_handling": [
+      "Use 'xlsx' or 'papaparse' (if CSV) to parse the file.",
+      "Store the parsed data in a local React state (or Context) for the MVP."
+    ],
+    "export": [
+      "Use 'html2canvas' or similar to capture the 'PinCard' DOM element as an image.",
+      "Use 'jszip' to bundle them for bulk download."
+    ]
+  },
+  "universal_guidelines": {
+    "design": [
+      "Avoid 'Inter' for Headings. Use 'Outfit' via Google Fonts.",
+      "Do not use generic gray borders. Use tinted borders (e.g., slate-200) or shadows.",
+      "Ensure all interactive elements have 'data-testid' attributes.",
+      "Use 'gap-6' or 'gap-8' for grids to allow breathing room."
+    ],
+    "accessibility": [
+      "Ensure text contrast on the Pin Cards is high. Use text shadows if necessary on the background images.",
+      "All inputs must have associated labels."
+    ]
+  }
+}
