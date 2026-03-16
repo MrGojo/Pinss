@@ -89,6 +89,16 @@ REQUIRED_COLUMNS = [
     "Timing Link",
 ]
 
+HEADER_ALIASES: Dict[str, List[str]] = {
+    "Quote": ["quote", "quotes", "pinquote", "quotation"],
+    "Meta Title": ["metatitle", "title", "pintitle"],
+    "Meta Description": ["metadescription", "metadesc", "description", "pindescription"],
+    "Hashtags": ["hashtags", "hashtag", "tags"],
+    "TAG TOPIC": ["tagtopic", "topic", "tag", "boardtopic"],
+    "CREATOR": ["creator", "author", "owner"],
+    "Timing Link": ["timinglink", "link", "url", "destinationlink", "timing"],
+}
+
 MOCK_IMAGE_URLS = [
     "https://images.unsplash.com/photo-1681043854148-fe897823dc69?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1OTV8MHwxfHNlYXJjaHwzfHxhZXN0aGV0aWMlMjB2ZXJ0aWNhbCUyMGJhY2tncm91bmQlMjBtaW5pbWFsaXN0JTIwYWJzdHJhY3QlMjBuYXR1cmV8ZW58MHx8fHwxNzczNjM3NTczfDA&ixlib=rb-4.1.0&q=85",
     "https://images.unsplash.com/photo-1681041318320-1ed7a6fa376c?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1OTV8MHwxfHNlYXJjaHwyfHxhZXN0aGV0aWMlMjB2ZXJ0aWNhbCUyMGJhY2tncm91bmQlMjBtaW5pbWFsaXN0JTIwYWJzdHJhY3QlMjBuYXR1cmV8ZW58MHx8fHwxNzczNjM3NTczfDA&ixlib=rb-4.1.0&q=85",
@@ -146,30 +156,118 @@ def load_backgrounds() -> List[Image.Image]:
     return backgrounds
 
 
-def parse_file(file_name: str, file_bytes: bytes) -> pd.DataFrame:
+def normalize_header_name(value: Any) -> str:
+    lowered = clean_text(value).lower()
+    return re.sub(r"[^a-z0-9]", "", lowered)
+
+
+def read_tabular_file(file_name: str, file_bytes: bytes, header: int | None) -> pd.DataFrame:
     suffix = Path(file_name).suffix.lower()
     if suffix == ".csv":
-        dataframe = pd.read_csv(io.BytesIO(file_bytes))
+        try:
+            dataframe = pd.read_csv(io.BytesIO(file_bytes), header=header, dtype=str)
+        except UnicodeDecodeError:
+            dataframe = pd.read_csv(io.BytesIO(file_bytes), header=header, dtype=str, encoding="latin-1")
     elif suffix == ".xlsx":
-        dataframe = pd.read_excel(io.BytesIO(file_bytes), engine="openpyxl")
+        dataframe = pd.read_excel(io.BytesIO(file_bytes), engine="openpyxl", header=header, dtype=str)
     else:
         raise HTTPException(status_code=400, detail="Upload must be .xlsx or .csv")
 
-    normalized = {column.strip().lower(): column for column in dataframe.columns}
-    missing = [column for column in REQUIRED_COLUMNS if column.lower() not in normalized]
-    if missing:
-        raise HTTPException(status_code=400, detail=f"Missing columns: {', '.join(missing)}")
+    return dataframe
 
-    selected_columns = {
-        normalized[required.lower()]: required for required in REQUIRED_COLUMNS
+
+def detect_header_row(raw_dataframe: pd.DataFrame) -> int | None:
+    scan_limit = min(len(raw_dataframe), 12)
+    required_markers = {"quote", "metatitle", "metadescription", "hashtags"}
+
+    for row_index in range(scan_limit):
+        row_values = {
+            normalize_header_name(value)
+            for value in raw_dataframe.iloc[row_index].tolist()
+            if clean_text(value)
+        }
+        if required_markers.issubset(row_values):
+            return row_index
+
+    return None
+
+
+def standardize_dataframe(dataframe: pd.DataFrame) -> pd.DataFrame:
+    normalized_columns = {
+        normalize_header_name(column): str(column)
+        for column in dataframe.columns
+        if clean_text(column)
     }
-    parsed = dataframe[list(selected_columns.keys())].rename(columns=selected_columns)
-    parsed = parsed.fillna("")
 
-    for column in REQUIRED_COLUMNS:
-        parsed[column] = parsed[column].astype(str).map(lambda value: value.strip())
+    def resolve_column(canonical_name: str) -> str | None:
+        aliases = HEADER_ALIASES[canonical_name]
+        for alias in aliases:
+            if alias in normalized_columns:
+                return normalized_columns[alias]
+        return None
+
+    resolved_columns: Dict[str, str] = {}
+    missing: List[str] = []
+    for canonical in REQUIRED_COLUMNS:
+        column_name = resolve_column(canonical)
+        if column_name is None:
+            missing.append(canonical)
+        else:
+            resolved_columns[canonical] = column_name
+
+    if missing:
+        available_headers = [clean_text(column) for column in dataframe.columns if clean_text(column)]
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Missing columns: {', '.join(missing)}. "
+                f"Detected headers: {', '.join(available_headers) if available_headers else 'none'}"
+            ),
+        )
+
+    parsed = pd.DataFrame()
+
+    for canonical in REQUIRED_COLUMNS:
+        source_column = resolved_columns[canonical]
+        parsed[canonical] = dataframe[source_column].fillna("").astype(str).map(clean_text)
+
+    topic_column = resolved_columns.get("TAG TOPIC")
+    tag_column = normalized_columns.get("tag")
+    if topic_column and tag_column and topic_column != tag_column:
+        topic_series = dataframe[topic_column].fillna("").astype(str).map(clean_text)
+        tag_series = dataframe[tag_column].fillna("").astype(str).map(clean_text)
+        parsed["TAG TOPIC"] = topic_series.where(topic_series != "", tag_series)
+
+    link_column = resolved_columns.get("Timing Link")
+    timing_column = normalized_columns.get("timing")
+    if link_column and timing_column and link_column != timing_column:
+        link_series = dataframe[link_column].fillna("").astype(str).map(clean_text)
+        timing_series = dataframe[timing_column].fillna("").astype(str).map(clean_text)
+        parsed["Timing Link"] = link_series.where(link_series != "", timing_series)
+
+    parsed = parsed.replace("nan", "")
+    parsed = parsed[(parsed["Quote"] != "") & (parsed["Meta Title"] != "")].reset_index(drop=True)
+
+    if parsed.empty:
+        raise HTTPException(status_code=400, detail="No valid rows found after parsing. Please verify your header row.")
 
     return parsed
+
+
+def parse_file(file_name: str, file_bytes: bytes) -> pd.DataFrame:
+    initial = read_tabular_file(file_name, file_bytes, header=0)
+    try:
+        return standardize_dataframe(initial)
+    except HTTPException as first_error:
+        raw = read_tabular_file(file_name, file_bytes, header=None)
+        header_row = detect_header_row(raw)
+        if header_row is None:
+            raise first_error
+
+        header_values = [clean_text(value) for value in raw.iloc[header_row].tolist()]
+        rebuilt = raw.iloc[header_row + 1 :].copy().reset_index(drop=True)
+        rebuilt.columns = header_values
+        return standardize_dataframe(rebuilt)
 
 
 def get_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:

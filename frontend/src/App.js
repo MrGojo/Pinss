@@ -21,11 +21,13 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 const textPositionOptions = ["top", "center", "bottom"];
+const batchSizeOptions = ["50", "100"];
 
 function App() {
   const [excelFile, setExcelFile] = useState(null);
   const [templateFile, setTemplateFile] = useState(null);
   const [textPosition, setTextPosition] = useState("center");
+  const [batchSize, setBatchSize] = useState("100");
   const [progressValue, setProgressValue] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
   const [pins, setPins] = useState([]);
@@ -60,7 +62,7 @@ function App() {
         formData.append("template_image", templateFile);
       }
       formData.append("template_text_position", textPosition);
-      formData.append("max_pins", "500");
+      formData.append("max_pins", batchSize);
 
       const response = await axios.post(`${API}/pins/generate`, formData, {
         headers: {
@@ -120,7 +122,7 @@ function App() {
                 Bulk Pin Creator Studio
               </h1>
               <p className="max-w-2xl text-sm text-slate-600 sm:text-base dark:text-slate-300" data-testid="app-subheading-text">
-                Upload Excel, auto-build prompts, generate up to 500 pin creatives, and export metadata for future Pinterest automation.
+                Upload Excel, auto-build prompts, generate in 50 or 100-pin batches, and export metadata for future Pinterest automation.
               </p>
             </div>
             <Button
@@ -188,6 +190,26 @@ function App() {
                 </Select>
               </div>
 
+              <div className="space-y-2">
+                <Label data-testid="batch-size-label">Batch size</Label>
+                <Select value={batchSize} onValueChange={setBatchSize}>
+                  <SelectTrigger className="bg-white dark:bg-slate-900" data-testid="batch-size-select-trigger">
+                    <SelectValue placeholder="Select batch size" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {batchSizeOptions.map((option) => (
+                      <SelectItem
+                        key={option}
+                        value={option}
+                        data-testid={`batch-size-select-option-${option}`}
+                      >
+                        {option} pins
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
               <Button
                 onClick={handleGenerate}
                 disabled={isGenerating}
@@ -216,7 +238,7 @@ function App() {
                   Generation Status
                 </CardTitle>
                 <CardDescription data-testid="generation-status-subtitle">
-                  Real-time progress for bulk rendering up to 500 Pinterest pins.
+                  Real-time progress for bulk rendering in your selected 50/100 pin batch.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">

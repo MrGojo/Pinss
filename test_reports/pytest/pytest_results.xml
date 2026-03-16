@@ -1,1 +1,65 @@
-<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="0" skipped="0" tests="9" time="12.017" timestamp="2026-03-16T05:16:20.769061+00:00" hostname="agent-env-41b082f5-95ab-4e6a-9626-91322d9b2d79"><testcase classname="backend.tests.test_pins_api" name="test_api_root_health" time="0.148" /><testcase classname="backend.tests.test_pins_api" name="test_generate_rejects_missing_columns" time="0.056" /><testcase classname="backend.tests.test_pins_api" name="test_generate_supports_template_and_text_position" time="0.197" /><testcase classname="backend.tests.test_pins_api" name="test_generate_accepts_xlsx_upload" time="3.747" /><testcase classname="backend.tests.test_pins_api" name="test_get_pins_persistence" time="7.171" /><testcase classname="backend.tests.test_pins_api" name="test_get_progress" time="0.052" /><testcase classname="backend.tests.test_pins_api" name="test_download_individual_pin" time="0.106" /><testcase classname="backend.tests.test_pins_api" name="test_download_zip_for_session" time="0.118" /><testcase classname="backend.tests.test_pins_api" name="test_export_metadata_csv_and_json" time="0.106" /></testsuite></testsuites>
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="11" time="126.473" timestamp="2026-03-16T05:44:26.345741+00:00" hostname="agent-env-41b082f5-95ab-4e6a-9626-91322d9b2d79"><testcase classname="backend.tests.test_excel_alias_batch_regression" name="test_user_excel_alias_headers_generate_success[50]" time="56.951" /><testcase classname="backend.tests.test_excel_alias_batch_regression" name="test_user_excel_alias_headers_generate_success[100]" time="60.073"><failure message="AssertionError: The preview environment is not responding. It may be starting up.&#10;  &#10;assert 502 == 200&#10; +  where 502 = &lt;Response [502]&gt;.status_code">backend/tests/test_excel_alias_batch_regression.py:41: in test_user_excel_alias_headers_generate_success
+    assert response.status_code == 200, response.text
+E   AssertionError: The preview environment is not responding. It may be starting up.
+E     
+E   assert 502 == 200
+E    +  where 502 = &lt;Response [502]&gt;.status_code</failure></testcase><testcase classname="backend.tests.test_pins_api" name="test_api_root_health" time="0.014"><failure message="requests.exceptions.ConnectionError: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))">/root/.venv/lib/python3.11/site-packages/urllib3/connectionpool.py:787: in urlopen
+    response = self._make_request(
+/root/.venv/lib/python3.11/site-packages/urllib3/connectionpool.py:534: in _make_request
+    response = conn.getresponse()
+               ^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/urllib3/connection.py:571: in getresponse
+    httplib_response = super().getresponse()
+                       ^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/http/client.py:1395: in getresponse
+    response.begin()
+/usr/local/lib/python3.11/http/client.py:325: in begin
+    version, status, reason = self._read_status()
+                              ^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/http/client.py:294: in _read_status
+    raise RemoteDisconnected("Remote end closed connection without"
+E   http.client.RemoteDisconnected: Remote end closed connection without response
+
+During handling of the above exception, another exception occurred:
+/root/.venv/lib/python3.11/site-packages/requests/adapters.py:644: in send
+    resp = conn.urlopen(
+/root/.venv/lib/python3.11/site-packages/urllib3/connectionpool.py:841: in urlopen
+    retries = retries.increment(
+/root/.venv/lib/python3.11/site-packages/urllib3/util/retry.py:490: in increment
+    raise reraise(type(error), error, _stacktrace)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/urllib3/util/util.py:38: in reraise
+    raise value.with_traceback(tb)
+/root/.venv/lib/python3.11/site-packages/urllib3/connectionpool.py:787: in urlopen
+    response = self._make_request(
+/root/.venv/lib/python3.11/site-packages/urllib3/connectionpool.py:534: in _make_request
+    response = conn.getresponse()
+               ^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/urllib3/connection.py:571: in getresponse
+    httplib_response = super().getresponse()
+                       ^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/http/client.py:1395: in getresponse
+    response.begin()
+/usr/local/lib/python3.11/http/client.py:325: in begin
+    version, status, reason = self._read_status()
+                              ^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/http/client.py:294: in _read_status
+    raise RemoteDisconnected("Remote end closed connection without"
+E   urllib3.exceptions.ProtocolError: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+
+During handling of the above exception, another exception occurred:
+backend/tests/test_pins_api.py:104: in test_api_root_health
+    response = api_client.get(f"{base_url}/api/", timeout=30)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:602: in get
+    return self.request("GET", url, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:589: in request
+    resp = self.send(prep, **send_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:703: in send
+    r = adapter.send(request, **kwargs)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/adapters.py:659: in send
+    raise ConnectionError(err, request=request)
+E   requests.exceptions.ConnectionError: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))</failure></testcase><testcase classname="backend.tests.test_pins_api" name="test_generate_rejects_missing_columns" time="0.211" /><testcase classname="backend.tests.test_pins_api" name="test_generate_supports_template_and_text_position" time="0.178" /><testcase classname="backend.tests.test_pins_api" name="test_generate_accepts_xlsx_upload" time="3.479" /><testcase classname="backend.tests.test_pins_api" name="test_get_pins_persistence" time="4.767" /><testcase classname="backend.tests.test_pins_api" name="test_get_progress" time="0.045" /><testcase classname="backend.tests.test_pins_api" name="test_download_individual_pin" time="0.101" /><testcase classname="backend.tests.test_pins_api" name="test_download_zip_for_session" time="0.127" /><testcase classname="backend.tests.test_pins_api" name="test_export_metadata_csv_and_json" time="0.098" /></testsuite></testsuites>

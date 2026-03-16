@@ -1,0 +1,32 @@
+[
+  {
+    "pin_id": "d755af2e-d19a-496e-9a12-1c6c1fc4185a",
+    "session_id": "41cfcbc9-23f6-4f2a-97f1-2b1605eadbfb",
+    "quote": "Stay consistent and trust your process",
+    "meta_title": "Consistency Mindset",
+    "meta_description": "Build tiny habits that compound over time",
+    "hashtags": "#mindset #habits",
+    "tag_topic": "self growth",
+    "creator": "TEST_creator",
+    "timing_link": "https://example.com/a",
+    "ai_prompt": "photorealistic Pinterest-style scene about self growth, inspired by 'Consistency Mindset', Build tiny habits that compound over time, soft natural light, modern editorial composition, clean depth of field, emotionally engaging visual storytelling, no text",
+    "filename": "stay-consistent-and-trust-your-process.png",
+    "image_url": "/api/static/pins/41cfcbc9-23f6-4f2a-97f1-2b1605eadbfb/stay-consistent-and-trust-your-process.png",
+    "created_at": "2026-03-16T05:46:31.038897+00:00"
+  },
+  {
+    "pin_id": "f27bac81-87f0-415e-9f24-7b6e03da39bf",
+    "session_id": "41cfcbc9-23f6-4f2a-97f1-2b1605eadbfb",
+    "quote": "One small action today can change tomorrow",
+    "meta_title": "Daily Progress",
+    "meta_description": "Incremental effort creates long-term momentum",
+    "hashtags": "#progress #daily",
+    "tag_topic": "motivation",
+    "creator": "TEST_creator",
+    "timing_link": "https://example.com/b",
+    "ai_prompt": "photorealistic Pinterest-style scene about motivation, inspired by 'Daily Progress', Incremental effort creates long-term momentum, soft natural light, modern editorial composition, clean depth of field, emotionally engaging visual storytelling, no text",
+    "filename": "one-small-action-today-can-change-tomorrow.png",
+    "image_url": "/api/static/pins/41cfcbc9-23f6-4f2a-97f1-2b1605eadbfb/one-small-action-today-can-change-tomorrow.png",
+    "created_at": "2026-03-16T05:46:32.356940+00:00"
+  }
+]
