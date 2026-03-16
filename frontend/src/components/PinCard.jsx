@@ -13,7 +13,7 @@ export default function PinCard({ pin, backendUrl }) {
 
   return (
     <Card
-      className="group overflow-hidden rounded-2xl border-slate-200 bg-white/90 shadow-[0_6px_25px_rgba(15,23,42,0.08)] transition-transform duration-300 hover:-translate-y-1"
+      className="group overflow-hidden rounded-2xl border-slate-200 bg-white/90 shadow-[0_6px_25px_rgba(15,23,42,0.08)] transition-transform duration-300 hover:-translate-y-1 dark:border-slate-700 dark:bg-slate-900/90"
       data-testid={`pin-card-${pin.pin_id}`}
     >
       <CardContent className="p-0">
@@ -27,9 +27,9 @@ export default function PinCard({ pin, backendUrl }) {
           />
         </div>
       </CardContent>
-      <CardFooter className="flex flex-col items-start gap-3 border-t border-slate-100 p-4">
+      <CardFooter className="flex flex-col items-start gap-3 border-t border-slate-100 p-4 dark:border-slate-700">
         <p
-          className="line-clamp-3 text-sm font-semibold text-slate-800"
+          className="line-clamp-3 text-sm font-semibold text-slate-800 dark:text-slate-100"
           data-testid={`pin-quote-text-${pin.pin_id}`}
           title={pin.quote}
         >

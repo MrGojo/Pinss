@@ -96,6 +96,8 @@ MOCK_IMAGE_URLS = [
     "https://images.unsplash.com/photo-1770675672063-01c42afa8076?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1OTV8MHwxfHNlYXJjaHwxfHxhZXN0aGV0aWMlMjB2ZXJ0aWNhbCUyMGJhY2tncm91bmQlMjBtaW5pbWFsaXN0JTIwYWJzdHJhY3QlMjBuYXR1cmV8ZW58MHx8fHwxNzczNjM3NTczfDA&ixlib=rb-4.1.0&q=85",
 ]
 
+GENERATION_TRACKER: Dict[str, Dict[str, Any]] = {}
+
 
 def clean_text(value: Any) -> str:
     return str(value or "").strip()
@@ -361,6 +363,9 @@ async def generate_pins(
     if max_pins < 1:
         raise HTTPException(status_code=400, detail="max_pins must be at least 1")
 
+    if template_text_position not in {"top", "center", "bottom"}:
+        raise HTTPException(status_code=400, detail="template_text_position must be top, center, or bottom")
+
     total_limit = min(max_pins, 500)
     file_bytes = await data_file.read()
     dataframe = parse_file(data_file.filename or "", file_bytes)
@@ -384,7 +389,13 @@ async def generate_pins(
             raise HTTPException(status_code=400, detail="Invalid template image") from exc
 
     backgrounds = await asyncio.to_thread(load_backgrounds) if template_obj is None else []
-    generation_progress = {"generated_count": 0, "completed": False}
+    generation_progress = {
+        "generated_count": 0,
+        "total_count": len(records),
+        "completed": False,
+    }
+    GENERATION_TRACKER[session_id] = generation_progress
+    progress_lock = asyncio.Lock()
 
     semaphore = asyncio.Semaphore(12)
 
@@ -400,7 +411,8 @@ async def generate_pins(
                 template_obj,
                 backgrounds,
             )
-            generation_progress["generated_count"] += 1
+            async with progress_lock:
+                generation_progress["generated_count"] += 1
             return pin
 
     tasks = [process_row(index, row) for index, row in enumerate(records)]
@@ -420,6 +432,7 @@ async def generate_pins(
         },
         upsert=True,
     )
+    GENERATION_TRACKER.pop(session_id, None)
 
     return {
         "session_id": session_id,
@@ -438,6 +451,13 @@ async def get_generated_pins(session_id: str):
 
 @api_router.get("/pins/progress/{session_id}", response_model=GenerationSummary)
 async def get_generation_progress(session_id: str):
+    live_progress = GENERATION_TRACKER.get(session_id)
+    if live_progress:
+        return {
+            "generated_count": int(live_progress.get("generated_count", 0)),
+            "completed": bool(live_progress.get("completed", False)),
+        }
+
     session = await db.generation_sessions.find_one({"session_id": session_id}, {"_id": 0})
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")

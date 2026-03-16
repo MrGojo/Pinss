@@ -104,26 +104,29 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-red-50 via-white to-slate-50" data-testid="pin-generator-app">
+    <div
+      className="min-h-screen bg-gradient-to-br from-red-50 via-white to-slate-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950"
+      data-testid="pin-generator-app"
+    >
       <Toaster richColors position="top-right" />
       <main className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-4 py-10 lg:px-8">
-        <header className="rounded-3xl border border-red-100 bg-white/80 p-6 shadow-[0_15px_40px_rgba(239,68,68,0.08)] backdrop-blur">
+        <header className="rounded-3xl border border-red-100 bg-white/80 p-6 shadow-[0_15px_40px_rgba(239,68,68,0.08)] backdrop-blur dark:border-slate-700 dark:bg-slate-900/80 dark:shadow-[0_15px_40px_rgba(2,6,23,0.45)]">
           <div className="flex flex-wrap items-start justify-between gap-5">
             <div className="space-y-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-red-600" data-testid="header-kicker-text">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-red-600 dark:text-red-400" data-testid="header-kicker-text">
                 Pinterest Affiliate Workflow
               </p>
-              <h1 className="heading-font text-4xl font-bold leading-tight text-slate-900 sm:text-5xl lg:text-6xl" data-testid="app-main-heading">
+              <h1 className="heading-font text-4xl font-bold leading-tight text-slate-900 sm:text-5xl lg:text-6xl dark:text-slate-100" data-testid="app-main-heading">
                 Bulk Pin Creator Studio
               </h1>
-              <p className="max-w-2xl text-sm text-slate-600 sm:text-base" data-testid="app-subheading-text">
+              <p className="max-w-2xl text-sm text-slate-600 sm:text-base dark:text-slate-300" data-testid="app-subheading-text">
                 Upload Excel, auto-build prompts, generate up to 500 pin creatives, and export metadata for future Pinterest automation.
               </p>
             </div>
             <Button
               onClick={toggleTheme}
               variant="outline"
-              className="rounded-full border-slate-300 bg-white"
+              className="rounded-full border-slate-300 bg-white dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
               data-testid="theme-toggle-button"
             >
               {isDarkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
@@ -133,9 +136,9 @@ function App() {
         </header>
 
         <section className="grid gap-8 lg:grid-cols-[320px_1fr]" data-testid="dashboard-main-grid">
-          <Card className="h-fit rounded-3xl border border-slate-200 bg-white/90 shadow-[0_8px_32px_rgba(15,23,42,0.1)]">
+          <Card className="h-fit rounded-3xl border border-slate-200 bg-white/90 shadow-[0_8px_32px_rgba(15,23,42,0.1)] dark:border-slate-700 dark:bg-slate-900/90">
             <CardHeader>
-              <CardTitle className="heading-font text-2xl text-slate-900" data-testid="upload-panel-title">
+              <CardTitle className="heading-font text-2xl text-slate-900 dark:text-slate-100" data-testid="upload-panel-title">
                 Upload & Generate
               </CardTitle>
               <CardDescription data-testid="upload-panel-description">
@@ -168,7 +171,7 @@ function App() {
               <div className="space-y-2">
                 <Label data-testid="text-position-label">Template quote position</Label>
                 <Select value={textPosition} onValueChange={setTextPosition}>
-                  <SelectTrigger className="bg-white" data-testid="text-position-select-trigger">
+                  <SelectTrigger className="bg-white dark:bg-slate-900" data-testid="text-position-select-trigger">
                     <SelectValue placeholder="Select text position" />
                   </SelectTrigger>
                   <SelectContent>
@@ -207,9 +210,9 @@ function App() {
           </Card>
 
           <div className="space-y-8">
-            <Card className="rounded-3xl border border-slate-200 bg-white/90 shadow-[0_8px_32px_rgba(15,23,42,0.08)]">
+            <Card className="rounded-3xl border border-slate-200 bg-white/90 shadow-[0_8px_32px_rgba(15,23,42,0.08)] dark:border-slate-700 dark:bg-slate-900/90">
               <CardHeader>
-                <CardTitle className="heading-font text-2xl text-slate-900" data-testid="generation-status-title">
+                <CardTitle className="heading-font text-2xl text-slate-900 dark:text-slate-100" data-testid="generation-status-title">
                   Generation Status
                 </CardTitle>
                 <CardDescription data-testid="generation-status-subtitle">
@@ -219,10 +222,10 @@ function App() {
               <CardContent className="space-y-4">
                 <Progress
                   value={progressValue}
-                  className="h-3 bg-slate-100 [&>div]:bg-[#E60023]"
+                  className="h-3 bg-slate-100 dark:bg-slate-800 [&>div]:bg-[#E60023]"
                   data-testid="pin-generation-progress-bar"
                 />
-                <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-slate-700">
+                <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-slate-700 dark:text-slate-200">
                   <span data-testid="progress-value-text">Progress: {Math.round(progressValue)}%</span>
                   <span data-testid="generated-count-text">Generated Pins: {generatedCount}</span>
                   <span className="truncate" data-testid="generation-session-id-text">
@@ -233,7 +236,7 @@ function App() {
                   <Button
                     onClick={handleDownloadAll}
                     variant="outline"
-                    className="rounded-full border-slate-300 bg-white"
+                    className="rounded-full border-slate-300 bg-white dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                     data-testid="download-all-zip-button"
                   >
                     <Download className="h-4 w-4" />
@@ -242,7 +245,7 @@ function App() {
                   <Button
                     onClick={() => handleExportMetadata("csv")}
                     variant="outline"
-                    className="rounded-full border-slate-300 bg-white"
+                    className="rounded-full border-slate-300 bg-white dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                     data-testid="export-metadata-csv-button"
                   >
                     <FileSpreadsheet className="h-4 w-4" />
@@ -251,7 +254,7 @@ function App() {
                   <Button
                     onClick={() => handleExportMetadata("json")}
                     variant="outline"
-                    className="rounded-full border-slate-300 bg-white"
+                    className="rounded-full border-slate-300 bg-white dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                     data-testid="export-metadata-json-button"
                   >
                     <FileSpreadsheet className="h-4 w-4" />
@@ -263,17 +266,17 @@ function App() {
 
             <section className="space-y-5" data-testid="preview-grid-section">
               <div className="flex items-center justify-between gap-4">
-                <h2 className="heading-font text-base font-semibold text-slate-900 md:text-lg" data-testid="preview-grid-title">
+                <h2 className="heading-font text-base font-semibold text-slate-900 md:text-lg dark:text-slate-100" data-testid="preview-grid-title">
                   Pin Preview Dashboard
                 </h2>
-                <p className="text-sm text-slate-600" data-testid="preview-grid-count-text">
+                <p className="text-sm text-slate-600 dark:text-slate-300" data-testid="preview-grid-count-text">
                   {generatedCount} pin(s)
                 </p>
               </div>
 
               {pins.length === 0 ? (
                 <div
-                  className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center text-sm text-slate-500"
+                  className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center text-sm text-slate-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300"
                   data-testid="preview-empty-state"
                 >
                   Generate pins to see previews, download images, and export metadata.
