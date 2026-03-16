@@ -12,6 +12,7 @@ from typing import List, Dict, Any
 import uuid
 from datetime import datetime, timezone
 import asyncio
+import base64
 import io
 import json
 import re
@@ -19,6 +20,7 @@ import zipfile
 
 import pandas as pd
 import requests
+from emergentintegrations.llm.chat import LlmChat, UserMessage
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 
@@ -100,10 +102,10 @@ HEADER_ALIASES: Dict[str, List[str]] = {
 }
 
 MOCK_IMAGE_URLS = [
-    "https://images.unsplash.com/photo-1681043854148-fe897823dc69?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1OTV8MHwxfHNlYXJjaHwzfHxhZXN0aGV0aWMlMjB2ZXJ0aWNhbCUyMGJhY2tncm91bmQlMjBtaW5pbWFsaXN0JTIwYWJzdHJhY3QlMjBuYXR1cmV8ZW58MHx8fHwxNzczNjM3NTczfDA&ixlib=rb-4.1.0&q=85",
-    "https://images.unsplash.com/photo-1681041318320-1ed7a6fa376c?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1OTV8MHwxfHNlYXJjaHwyfHxhZXN0aGV0aWMlMjB2ZXJ0aWNhbCUyMGJhY2tncm91bmQlMjBtaW5pbWFsaXN0JTIwYWJzdHJhY3QlMjBuYXR1cmV8ZW58MHx8fHwxNzczNjM3NTczfDA&ixlib=rb-4.1.0&q=85",
-    "https://images.unsplash.com/photo-1657718816787-b58cce8503d2?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1OTV8MHwxfHNlYXJjaHw0fHxhZXN0aGV0aWMlMjB2ZXJ0aWNhbCUyMGJhY2tncm91bmQlMjBtaW5pbWFsaXN0JTIwYWJzdHJhY3QlMjBuYXR1cmV8ZW58MHx8fHwxNzczNjM3NTczfDA&ixlib=rb-4.1.0&q=85",
-    "https://images.unsplash.com/photo-1770675672063-01c42afa8076?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1OTV8MHwxfHNlYXJjaHwxfHxhZXN0aGV0aWMlMjB2ZXJ0aWNhbCUyMGJhY2tncm91bmQlMjBtaW5pbWFsaXN0JTIwYWJzdHJhY3QlMjBuYXR1cmV8ZW58MHx8fHwxNzczNjM3NTczfDA&ixlib=rb-4.1.0&q=85",
+    "https://static.prod-images.emergentagent.com/jobs/bf3547ed-e1b7-4e48-9bc6-e1aa83f707d1/images/328f52aa34fc8ae7916966a2d8faab8917150a4703a8c1f48bf8160a77a47d7b.png",
+    "https://static.prod-images.emergentagent.com/jobs/bf3547ed-e1b7-4e48-9bc6-e1aa83f707d1/images/65f99e0695c649136b49c9330d20107f409043b4a9c73ede513a95cd50db4d51.png",
+    "https://static.prod-images.emergentagent.com/jobs/bf3547ed-e1b7-4e48-9bc6-e1aa83f707d1/images/78b6c57beda2383b84eb8a1aeb417b512678dde21a228d423cdb33dc6268a902.png",
+    "https://static.prod-images.emergentagent.com/jobs/bf3547ed-e1b7-4e48-9bc6-e1aa83f707d1/images/426acf8cd530ec7a944d38ff5a60f405e5214cfdf821cc7f02a53edaef6881ea.png",
 ]
 
 GENERATION_TRACKER: Dict[str, Dict[str, Any]] = {}
@@ -154,6 +156,71 @@ def load_backgrounds() -> List[Image.Image]:
     if not backgrounds:
         backgrounds.append(create_placeholder_background())
     return backgrounds
+
+
+async def generate_gemini_background(prompt: str, api_key: str, session_id: str, index: int) -> Image.Image:
+    chat = LlmChat(
+        api_key=api_key,
+        session_id=f"{session_id}-bg-{index}-{uuid.uuid4()}",
+        system_message=(
+            "You generate photorealistic Pinterest-style vertical background images. "
+            "Never include text, logos, or watermarks in the image."
+        ),
+    )
+    chat.with_model("gemini", "gemini-3-pro-image-preview").with_params(modalities=["image", "text"])
+
+    message = UserMessage(
+        text=(
+            "Create a high-quality photorealistic Pinterest background image in vertical composition (2:3 ratio). "
+            "Modern clean aesthetic, soft cinematic lighting, strong subject clarity, no text in image. "
+            f"Context: {prompt}"
+        )
+    )
+
+    _, images = await asyncio.wait_for(chat.send_message_multimodal_response(message), timeout=90)
+    if not images:
+        raise RuntimeError("Gemini returned no image")
+
+    image_base64 = images[0].get("data", "")
+    if not image_base64:
+        raise RuntimeError("Gemini returned empty image data")
+
+    decoded = base64.b64decode(image_base64)
+    return Image.open(io.BytesIO(decoded)).convert("RGB")
+
+
+async def build_ai_background_pool(records: List[Dict[str, Any]], session_id: str) -> List[Image.Image]:
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        return []
+
+    unique_prompts: List[str] = []
+    for row in records:
+        prompt = build_ai_prompt(
+            row.get("Meta Title", ""),
+            row.get("Meta Description", ""),
+            row.get("TAG TOPIC", ""),
+        )
+        if prompt not in unique_prompts:
+            unique_prompts.append(prompt)
+
+    pool_size = min(5, max(2, len(records) // 20 if len(records) >= 20 else 2), len(unique_prompts))
+    selected_prompts = unique_prompts[:pool_size]
+    if not selected_prompts:
+        return []
+
+    semaphore = asyncio.Semaphore(2)
+
+    async def worker(idx: int, prompt: str) -> Image.Image | None:
+        async with semaphore:
+            try:
+                return await generate_gemini_background(prompt, api_key, session_id, idx)
+            except Exception as exc:
+                logger.warning("Gemini background generation failed at index %s: %s", idx, exc)
+                return None
+
+    generated = await asyncio.gather(*(worker(idx, prompt) for idx, prompt in enumerate(selected_prompts)))
+    return [image for image in generated if image is not None]
 
 
 def normalize_header_name(value: Any) -> str:
@@ -394,7 +461,7 @@ def create_pin_payload(
     base_slug = slugify_filename(quote, index)
     file_name = make_unique_filename(session_dir, base_slug)
     file_path = session_dir / file_name
-    rendered.save(file_path, format="PNG", optimize=True)
+    rendered.save(file_path, format="PNG")
 
     return {
         "pin_id": str(uuid.uuid4()),
@@ -456,7 +523,7 @@ async def generate_pins(
     data_file: UploadFile = File(...),
     template_image: UploadFile | None = File(default=None),
     template_text_position: str = Form("center"),
-    max_pins: int = Form(500),
+    max_pins: int = Form(50),
 ):
     if max_pins < 1:
         raise HTTPException(status_code=400, detail="max_pins must be at least 1")
@@ -486,7 +553,12 @@ async def generate_pins(
         except Exception as exc:
             raise HTTPException(status_code=400, detail="Invalid template image") from exc
 
-    backgrounds = await asyncio.to_thread(load_backgrounds) if template_obj is None else []
+    if template_obj is None:
+        backgrounds = await build_ai_background_pool(records, session_id)
+        if not backgrounds:
+            backgrounds = await asyncio.to_thread(load_backgrounds)
+    else:
+        backgrounds = []
     generation_progress = {
         "generated_count": 0,
         "total_count": len(records),

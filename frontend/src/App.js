@@ -27,7 +27,7 @@ function App() {
   const [excelFile, setExcelFile] = useState(null);
   const [templateFile, setTemplateFile] = useState(null);
   const [textPosition, setTextPosition] = useState("center");
-  const [batchSize, setBatchSize] = useState("100");
+  const [batchSize, setBatchSize] = useState("50");
   const [progressValue, setProgressValue] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
   const [pins, setPins] = useState([]);
@@ -35,6 +35,25 @@ function App() {
   const [isDarkMode, setIsDarkMode] = useState(false);
 
   const generatedCount = useMemo(() => pins.length, [pins]);
+
+  const getFilenameFromHeaders = (headers, fallback) => {
+    const disposition = headers?.["content-disposition"] || "";
+    const standardMatch = disposition.match(/filename="?([^";]+)"?/i);
+    return standardMatch?.[1] || fallback;
+  };
+
+  const downloadBlobFromApi = async (url, fallbackName) => {
+    const response = await axios.get(url, { responseType: "blob" });
+    const filename = getFilenameFromHeaders(response.headers, fallbackName);
+    const objectUrl = window.URL.createObjectURL(new Blob([response.data]));
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.URL.revokeObjectURL(objectUrl);
+  };
 
   const toggleTheme = () => {
     const updated = !isDarkMode;
@@ -89,20 +108,42 @@ function App() {
     }
   };
 
-  const handleDownloadAll = () => {
+  const handleDownloadSingle = async (pin) => {
+    try {
+      await downloadBlobFromApi(`${API}/pins/download/${pin.pin_id}`, pin.filename || `${pin.pin_id}.png`);
+      toast.success(`Downloaded ${pin.filename || "pin"}`);
+    } catch (error) {
+      toast.error("Single download failed. Please try again.");
+    }
+  };
+
+  const handleDownloadAll = async () => {
     if (!sessionId) {
       toast.error("Generate pins first to enable ZIP download.");
       return;
     }
-    window.open(`${API}/pins/download-all/${sessionId}`, "_blank", "noopener,noreferrer");
+    try {
+      await downloadBlobFromApi(`${API}/pins/download-all/${sessionId}`, `${sessionId}-pins.zip`);
+      toast.success("ZIP download started.");
+    } catch (error) {
+      toast.error("ZIP download failed. Please try again.");
+    }
   };
 
-  const handleExportMetadata = (exportFormat) => {
+  const handleExportMetadata = async (exportFormat) => {
     if (!sessionId) {
       toast.error("Generate pins first to export metadata.");
       return;
     }
-    window.open(`${API}/pins/export/${sessionId}?export_format=${exportFormat}`, "_blank", "noopener,noreferrer");
+    try {
+      await downloadBlobFromApi(
+        `${API}/pins/export/${sessionId}?export_format=${exportFormat}`,
+        `${sessionId}-metadata.${exportFormat}`
+      );
+      toast.success(`Metadata ${exportFormat.toUpperCase()} downloaded.`);
+    } catch (error) {
+      toast.error(`Metadata ${exportFormat.toUpperCase()} download failed.`);
+    }
   };
 
   return (
@@ -168,6 +209,17 @@ function App() {
                   onChange={(event) => setTemplateFile(event.target.files?.[0] || null)}
                   data-testid="template-upload-input"
                 />
+                {templateFile ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="h-8 px-0 text-xs text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+                    onClick={() => setTemplateFile(null)}
+                    data-testid="template-clear-button"
+                  >
+                    Remove template and use AI backgrounds
+                  </Button>
+                ) : null}
               </div>
 
               <div className="space-y-2">
@@ -306,7 +358,12 @@ function App() {
               ) : (
                 <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3" data-testid="preview-grid-list">
                   {pins.map((pin) => (
-                    <PinCard key={pin.pin_id} pin={pin} backendUrl={BACKEND_URL} />
+                    <PinCard
+                      key={pin.pin_id}
+                      pin={pin}
+                      backendUrl={BACKEND_URL}
+                      onDownload={handleDownloadSingle}
+                    />
                   ))}
                 </div>
               )}

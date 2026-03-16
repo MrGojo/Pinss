@@ -2,13 +2,13 @@ import { Download } from "lucide-react";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
-export default function PinCard({ pin, backendUrl }) {
+export default function PinCard({ pin, backendUrl, onDownload }) {
   const imageSource = pin.image_url?.startsWith("http")
     ? pin.image_url
     : `${backendUrl}${pin.image_url}`;
 
   const handleDownload = () => {
-    window.open(`${backendUrl}/api/pins/download/${pin.pin_id}`, "_blank", "noopener,noreferrer");
+    onDownload(pin);
   };
 
   return (
