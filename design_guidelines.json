@@ -1,177 +1,159 @@
 {
-  "theme_name": "The Curator's Studio",
-  "emotional_tone": "Efficient, Aesthetic, Inspiring, Organized",
+  "brand": {
+    "name": "PinFlow",
+    "description": "AI-Powered Pinterest Automation Suite for High-Performance Creators",
+    "tone": "Professional, Creative, Minimalist, Efficient"
+  },
+  "theme": {
+    "mode": "light",
+    "strategy": "Swiss & High-Contrast",
+    "archetype": "Archetype 4 (Swiss) mixed with Archetype 1 (Organic)"
+  },
   "typography": {
     "headings": {
-      "family": "Outfit, sans-serif",
-      "weights": ["500", "600", "700"],
-      "sizes": {
-        "h1": "text-4xl md:text-5xl tracking-tight font-bold",
-        "h2": "text-3xl md:text-4xl tracking-tight font-semibold",
-        "h3": "text-2xl md:text-3xl font-medium",
-        "h4": "text-xl font-medium"
-      },
-      "usage": "Use for all page titles, section headers, and the main 'Quote' text on the generated pins."
+      "fontFamily": "Outfit, sans-serif",
+      "weights": ["600", "700", "800"],
+      "letterSpacing": "-0.02em",
+      "lineHeight": "1.1"
     },
     "body": {
-      "family": "Manrope, sans-serif",
+      "fontFamily": "Manrope, sans-serif",
       "weights": ["400", "500"],
-      "sizes": {
-        "base": "text-base leading-relaxed",
-        "sm": "text-sm leading-relaxed",
-        "xs": "text-xs tracking-wide uppercase"
-      },
-      "usage": "Use for all UI elements, inputs, descriptions, and metadata display."
+      "lineHeight": "1.6"
+    },
+    "pin_fonts": {
+      "instructions": "MUST import these fonts in index.css for Pin Generation usage:",
+      "families": [
+        "Poppins:wght@700",
+        "Montserrat:wght@700",
+        "Nunito:wght@700"
+      ]
     }
   },
   "colors": {
     "palette": {
       "primary": {
-        "DEFAULT": "#E60023",
-        "foreground": "#FFFFFF",
-        "hover": "#AD081B",
-        "description": "Pinterest Red - Use strictly for primary actions (Generate, Download) and brand alignment."
+        "DEFAULT": "#e11d48",
+        "foreground": "#ffffff",
+        "description": "Vibrant Rose - Energetic, aligned with Pinterest aesthetic"
       },
       "secondary": {
-        "DEFAULT": "#1F2937",
-        "foreground": "#FFFFFF",
-        "description": "Slate 900 - Use for high-contrast UI elements, headings, and distinct buttons."
-      },
-      "accent": {
-        "DEFAULT": "#F3F4F6",
-        "foreground": "#111827",
-        "description": "Cool Gray 100 - Use for backgrounds, secondary buttons, and input fields."
+        "DEFAULT": "#0f172a",
+        "foreground": "#ffffff",
+        "description": "Deep Slate - High contrast for text and structural elements"
       },
       "background": {
-        "DEFAULT": "#FFFFFF",
-        "alt": "#FAFAFA",
-        "description": "Pure White for the canvas, Off-White for sidebar/panels."
+        "DEFAULT": "#f8fafc",
+        "alt": "#ffffff",
+        "description": "Slate-50 - Clean, airy canvas"
       },
-      "success": {
-        "DEFAULT": "#10B981",
-        "description": "Emerald Green - Use for 'Completed' status and success toasts."
+      "accent": {
+        "DEFAULT": "#fff1f2",
+        "foreground": "#e11d48",
+        "description": "Rose-50 - Subtle highlights"
       },
-      "warning": {
-        "DEFAULT": "#F59E0B",
-        "description": "Amber - Use for 'Processing' status."
+      "muted": {
+        "DEFAULT": "#f1f5f9",
+        "foreground": "#64748b"
       },
-      "border": {
-        "DEFAULT": "#E5E7EB",
-        "focus": "#E60023"
+      "border": "#e2e8f0"
+    }
+  },
+  "layout": {
+    "container": "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8",
+    "spacing": {
+      "section": "py-12 md:py-16",
+      "element": "gap-6 md:gap-8",
+      "internal": "p-6 md:p-8"
+    },
+    "grid": {
+      "dashboard": "grid grid-cols-1 lg:grid-cols-12 gap-8",
+      "pin_preview": "grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6",
+      "bento_mode": {
+        "hero": "col-span-full lg:col-span-8 row-span-2",
+        "sidebar": "col-span-full lg:col-span-4 row-span-2",
+        "stats": "col-span-6 lg:col-span-3"
       }
-    },
-    "gradients": {
-      "hero": "bg-gradient-to-br from-red-50 to-white",
-      "loading": "bg-gradient-to-r from-gray-100 to-gray-200 animate-pulse"
     }
   },
-  "visual_enhancers": {
-    "shadows": {
-      "card": "shadow-[0_2px_8px_rgba(0,0,0,0.08)]",
-      "floating": "shadow-[0_8px_30px_rgb(0,0,0,0.12)]",
-      "hover": "hover:shadow-[0_8px_30px_rgb(0,0,0,0.12)] transition-shadow duration-300"
+  "components": {
+    "buttons": {
+      "primary": "bg-primary text-primary-foreground hover:bg-primary/90 rounded-full px-8 py-3 font-semibold shadow-lg hover:shadow-xl transition-all duration-300 transform hover:-translate-y-0.5",
+      "secondary": "bg-white text-secondary-foreground border border-input hover:bg-accent hover:text-accent-foreground rounded-full px-6 py-3 font-medium transition-colors shadow-sm",
+      "ghost": "hover:bg-accent hover:text-accent-foreground rounded-md px-4 py-2"
     },
-    "borders": {
-      "default": "border border-gray-200",
-      "active": "border-2 border-primary",
-      "subtle": "border-b border-gray-100"
+    "cards": {
+      "base": "bg-white border border-border/60 rounded-xl shadow-sm hover:shadow-md transition-shadow duration-300 overflow-hidden",
+      "interactive": "cursor-pointer hover:border-primary/50 hover:ring-2 hover:ring-primary/20",
+      "glass": "bg-white/80 backdrop-blur-xl border border-white/20 shadow-lg"
     },
-    "radius": {
-      "default": "rounded-xl",
-      "button": "rounded-full",
-      "input": "rounded-lg"
+    "inputs": {
+      "base": "flex h-12 w-full rounded-lg border border-input bg-background px-4 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
+      "file_upload": "border-2 border-dashed border-muted-foreground/25 hover:border-primary/50 hover:bg-accent/5 transition-colors rounded-xl p-12 text-center cursor-pointer"
+    },
+    "status": {
+      "progress_bar": "h-3 w-full overflow-hidden rounded-full bg-secondary/10 [&>div]:bg-primary [&>div]:transition-all [&>div]:duration-500"
     }
   },
-  "layout_strategy": {
-    "dashboard": {
-      "structure": "Sidebar + Main Content Area",
-      "sidebar_width": "w-64",
-      "main_padding": "p-8 md:p-12",
-      "max_width": "max-w-7xl mx-auto"
+  "features": {
+    "mode_selector": {
+      "style": "tabs",
+      "layout": "flex space-x-2 bg-muted p-1 rounded-full w-fit mx-auto mb-12",
+      "item_active": "bg-white text-foreground shadow-sm rounded-full",
+      "item_inactive": "text-muted-foreground hover:text-foreground"
     },
-    "grid_system": {
-      "gallery": "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6",
-      "form": "grid grid-cols-1 md:grid-cols-2 gap-8"
-    }
-  },
-  "components_map": {
-    "FileUpload": {
-      "path": "/app/frontend/src/components/ui/file-upload.jsx",
-      "style": "Border-dashed border-2 border-gray-300 rounded-xl p-12 text-center hover:border-primary/50 transition-colors bg-gray-50/50"
-    },
-    "PinCard": {
-      "path": "/app/frontend/src/components/PinCard.jsx",
-      "specs": {
-        "aspect_ratio": "aspect-[2/3]",
-        "structure": [
-          "Top: Image (Cover, h-full w-full absolute)",
-          "Middle: Quote Text (Centered, Z-index 10, relative, drop-shadow-md, font-bold)",
-          "Bottom: White Bar (Absolute bottom, w-full, h-16, flex center, Z-index 20)"
-        ]
-      }
-    },
-    "ProgressBar": {
-      "path": "/app/frontend/src/components/ui/progress.jsx",
-      "style": "h-2 rounded-full bg-gray-100 indicator-primary"
-    },
-    "MetadataPanel": {
-      "path": "/app/frontend/src/components/MetadataPanel.jsx",
-      "style": "Fixed right or Modal, Glassmorphism background"
-    }
-  },
-  "mock_data": {
-    "images": [
-      {
-        "url": "https://images.unsplash.com/photo-1681043854148-fe897823dc69?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1OTV8MHwxfHNlYXJjaHwzfHxhZXN0aGV0aWMlMjB2ZXJ0aWNhbCUyMGJhY2tncm91bmQlMjBtaW5pbWFsaXN0JTIwYWJzdHJhY3QlMjBuYXR1cmV8ZW58MHx8fHwxNzczNjM3NTczfDA&ixlib=rb-4.1.0&q=85",
-        "category": "Architecture"
+    "pin_generator": {
+      "canvas_size": {
+        "width": 1000,
+        "height": 1500
       },
-      {
-        "url": "https://images.unsplash.com/photo-1681041318320-1ed7a6fa376c?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1OTV8MHwxfHNlYXJjaHwyfHxhZXN0aGV0aWMlMjB2ZXJ0aWNhbCUyMGJhY2tncm91bmQlMjBtaW5pbWFsaXN0JTIwYWJzdHJhY3QlMjBuYXR1cmV8ZW58MHx8fHwxNzczNjM3NTczfDA&ixlib=rb-4.1.0&q=85",
-        "category": "Minimalist"
-      },
-      {
-        "url": "https://images.unsplash.com/photo-1657718816787-b58cce8503d2?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1OTV8MHwxfHNlYXJjaHw0fHxhZXN0aGV0aWMlMjB2ZXJ0aWNhbCUyMGJhY2tncm91bmQlMjBtaW5pbWFsaXN0JTIwYWJzdHJhY3QlMjBuYXR1cmV8ZW58MHx8fHwxNzczNjM3NTczfDA&ixlib=rb-4.1.0&q=85",
-        "category": "Nature"
-      },
-      {
-        "url": "https://images.unsplash.com/photo-1770675672063-01c42afa8076?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1OTV8MHwxfHNlYXJjaHwxfHxhZXN0aGV0aWMlMjB2ZXJ0aWNhbCUyMGJhY2tncm91bmQlMjBtaW5pbWFsaXN0JTIwYWJzdHJhY3QlMjBuYXR1cmV8ZW58MHx8fHwxNzczNjM3NTczfDA&ixlib=rb-4.1.0&q=85",
-        "category": "Abstract"
-      }
+      "style_rules": [
+        "Background: AI Generated (Mode A) or User Uploaded (Mode B)",
+        "Text: Quote must be WHITE, Bold, Centered, with Shadow/Overlay",
+        "Footer: White strip at bottom, full width",
+        "CTA: 'Tap to learn more' in footer strip"
+      ]
+    },
+    "bulk_processing": {
+      "batch_size": "User selectable: 50 or 100",
+      "feedback": "Must show progress bar and current status text"
+    }
+  },
+  "assets": {
+    "placeholders": [
+      "https://images.unsplash.com/photo-1533165159663-884a2837ef63?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAxODF8MHwxfHNlYXJjaHwzfHxhZXN0aGV0aWMlMjB2ZXJ0aWNhbCUyMGxpZmVzdHlsZSUyMHBob3RvZ3JhcGh5JTIwbWluaW1hbGlzbXxlbnwwfHx8fDE3NzM5MDQ2MjJ8MA&ixlib=rb-4.1.0&q=85",
+      "https://images.unsplash.com/photo-1632904776796-22b5435c4bb5?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAxODF8MHwxfHNlYXJjaHwxfHxhZXN0aGV0aWMlMjB2ZXJ0aWNhbCUyMGxpZmVzdHlsZSUyMHBob3RvZ3JhcGh5JTIwbWluaW1hbGlzbXxlbnwwfHx8fDE3NzM5MDQ2MjJ8MA&ixlib=rb-4.1.0&q=85",
+      "https://images.unsplash.com/photo-1581430086429-bd6cf0788efe?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAxODF8MHwxfHNlYXJjaHwyfHxhZXN0aGV0aWMlMjB2ZXJ0aWNhbCUyMGxpZmVzdHlsZSUyMHBob3RvZ3JhcGh5JTIwbWluaW1hbGlzbXxlbnwwfHx8fDE3NzM5MDQ2MjJ8MA&ixlib=rb-4.1.0&q=85",
+      "https://images.unsplash.com/photo-1552311325-b7c948977a41?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAxODF8MHwxfHNlYXJjaHw0fHxhZXN0aGV0aWMlMjB2ZXJ0aWNhbCUyMGxpZmVzdHlsZSUyMHBob3RvZ3JhcGh5JTIwbWluaW1hbGlzbXxlbnwwfHx8fDE3NzM5MDQ2MjJ8MA&ixlib=rb-4.1.0&q=85"
     ]
   },
-  "instructions_to_main_agent": {
-    "general": [
-      "Use 'sonner' for all notifications (Upload success, Generation complete).",
-      "Use 'lucide-react' for icons (Upload, Download, Image, Sparkles).",
-      "Ensure the 'PinCard' component strictly follows the visual structure defined in the problem statement.",
-      "The 'Generate' button should trigger a mock process that iterates through the Excel rows and assigns one of the mock images randomly.",
-      "Include a 'dark mode' toggle in the sidebar, but optimize for 'Light Mode' as the default."
-    ],
-    "pin_generation_logic": [
-      "For MOCK generation: Use the provided Unsplash URLs as the 'AI Generated Image'.",
-      "If a user uploads a template, ignore the mock images and use the template.",
-      "The 'Quote' text must be centered and have a subtle text-shadow to ensure readability over the background image.",
-      "The 'Bottom White Bar' must be absolutely positioned at the bottom, 15-20% height of the card, with the text 'Tap to learn more'."
-    ],
-    "excel_handling": [
-      "Use 'xlsx' or 'papaparse' (if CSV) to parse the file.",
-      "Store the parsed data in a local React state (or Context) for the MVP."
-    ],
-    "export": [
-      "Use 'html2canvas' or similar to capture the 'PinCard' DOM element as an image.",
-      "Use 'jszip' to bundle them for bulk download."
-    ]
-  },
-  "universal_guidelines": {
-    "design": [
-      "Avoid 'Inter' for Headings. Use 'Outfit' via Google Fonts.",
-      "Do not use generic gray borders. Use tinted borders (e.g., slate-200) or shadows.",
-      "Ensure all interactive elements have 'data-testid' attributes.",
-      "Use 'gap-6' or 'gap-8' for grids to allow breathing room."
-    ],
-    "accessibility": [
-      "Ensure text contrast on the Pin Cards is high. Use text shadows if necessary on the background images.",
-      "All inputs must have associated labels."
-    ]
-  }
+  "instructions_to_main_agent": [
+    "IMPORT PIN FONTS: Add @import for Poppins, Montserrat, Nunito in index.css immediately.",
+    "MODE IMPLEMENTATION: Create a state-driven view switcher (Mode A / Mode B). Do not use separate routes unless necessary.",
+    "EXCEL PARSING: Use 'xlsx' library. Map columns: PIN NAME, Quote, Meta Title, Meta Description, Hashtags, TAG TOPIC, CREATOR, Timing Link.",
+    "AI GENERATION: Integrate Gemini API for image generation. Use 'prompts' based on Meta Title + Description + 'pinterest aesthetic, vertical, photorealistic'.",
+    "CANVAS RENDERING: Use 'html2canvas' or server-side (Python Pillow) for high-quality pin generation. If client-side, ensure fonts are loaded first.",
+    "FALLBACKS: If AI generation fails (quota), use solid color backgrounds with patterns or placeholders.",
+    "TESTING: Add data-testid to ALL interactive elements (buttons, inputs, cards).",
+    "DOWNLOAD: Implement JSZip for bulk download of generated images."
+  ],
+  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
+    "Dark colors look good when used independently without gradients. DO NOT use dark colors as gradients",
+    "Don't make generic centered layouts, simplistic gradients, and uniform styling.",
+    "Create depth through layered design elements with z-index hierarchy",
+    "Use glass-morphism effects with backdrop filters (12-24px blur)",
+    "You MUST NOT apply universal transition. Eg: 'transition: all'. This results in breaking transforms. Always add transitions for specific interactive elements like button, input excluding transforms",
+    "You MUST NOT center align the app container, ie do not add '.App { text-align: center; }' in the css file. This disrupts the human natural reading flow of text",
+    "Always use modern button styles like pill-shaped, or sharp button with interaction animations & color relevant to the app style",
+    "NEVER: use AI assistant Emoji characters like 🤖🧠💭💡 etc for icons.",
+    "Every interaction needs micro-animations - hover states, transitions, parallax effects, and entrance animations. Static = dead.",
+    "Use 2-3x more spacing than feels comfortable. Cramped designs look cheap.",
+    "Subtle grain textures, noise overlays, custom cursors, selection states, and loading animations: separates good from extraordinary.",
+    "Main agent relies on these image URLs. Missing categories (especially sponsor logos) = main agent will use placeholder text which is FORBIDDEN",
+    "Prioritize using pre-existing components from src/components/ui when applicable",
+    "Components MUST use named exports (export const ComponentName = ...)",
+    "Pages MUST use default exports (export default function PageName() {...})",
+    "Use 'sonner' for toasts",
+    "All interactive and key informational elements MUST include 'data-testid' attribute"
+  ]
 }
