@@ -21,7 +21,8 @@ import zipfile
 import pandas as pd
 import requests
 from emergentintegrations.llm.chat import LlmChat, UserMessage
-from PIL import Image, ImageDraw, ImageFont, ImageOps
+from PIL import Image, ImageDraw, ImageFont, ImageOps, ImageEnhance
+from docx import Document
 
 
 ROOT_DIR = Path(__file__).parent
@@ -57,6 +58,7 @@ class StatusCheckCreate(BaseModel):
 class PinRecord(BaseModel):
     pin_id: str
     session_id: str
+    pin_name: str = ""
     quote: str
     meta_title: str
     meta_description: str
@@ -65,6 +67,7 @@ class PinRecord(BaseModel):
     creator: str
     timing_link: str
     ai_prompt: str
+    mode: str = "ai"
     filename: str
     image_url: str
     created_at: str
@@ -82,6 +85,7 @@ class GenerationSummary(BaseModel):
 
 
 REQUIRED_COLUMNS = [
+    "PIN NAME",
     "Quote",
     "Meta Title",
     "Meta Description",
@@ -92,14 +96,17 @@ REQUIRED_COLUMNS = [
 ]
 
 HEADER_ALIASES: Dict[str, List[str]] = {
-    "Quote": ["quote", "quotes", "pinquote", "quotation"],
-    "Meta Title": ["metatitle", "title", "pintitle"],
-    "Meta Description": ["metadescription", "metadesc", "description", "pindescription"],
+    "PIN NAME": ["pinname", "pin", "name", "filename", "imagefilename"],
+    "Quote": ["quote", "quotes", "pinquote", "quotation", "pin", "pintitle1stlinebold"],
+    "Meta Title": ["metatitle", "title", "pintitle", "pinrestinput", "pintitle1stlinebold"],
+    "Meta Description": ["metadescription", "metadesc", "description", "pindescription", "pindescription1", "pindescription2"],
     "Hashtags": ["hashtags", "hashtag", "tags"],
-    "TAG TOPIC": ["tagtopic", "topic", "tag", "boardtopic"],
+    "TAG TOPIC": ["tagtopic", "topic", "tag", "boardtopic", "pintitle2ndline"],
     "CREATOR": ["creator", "author", "owner"],
-    "Timing Link": ["timinglink", "link", "url", "destinationlink", "timing"],
+    "Timing Link": ["timinglink", "link", "url", "destinationlink", "timing", "links"],
 }
+
+MANDATORY_COLUMNS = {"PIN NAME"}
 
 MOCK_IMAGE_URLS = [
     "https://static.prod-images.emergentagent.com/jobs/bf3547ed-e1b7-4e48-9bc6-e1aa83f707d1/images/328f52aa34fc8ae7916966a2d8faab8917150a4703a8c1f48bf8160a77a47d7b.png",
@@ -128,9 +135,9 @@ def build_ai_prompt(meta_title: str, meta_description: str, tag_topic: str) -> s
     description = clean_text(meta_description)
     topic = clean_text(tag_topic) or "lifestyle"
     return (
-        f"photorealistic Pinterest-style scene about {topic}, inspired by '{title}', "
-        f"{description}, soft natural light, modern editorial composition, "
-        "clean depth of field, emotionally engaging visual storytelling, no text"
+        f"photorealistic Pinterest aesthetic scene about {topic}, inspired by '{title}', "
+        f"{description}, soft lighting, lifestyle photography, vertical composition, high detail, "
+        "unique framing and camera angle, emotionally engaging visual storytelling, no text"
     )
 
 
@@ -204,7 +211,7 @@ async def build_ai_background_pool(records: List[Dict[str, Any]], session_id: st
         if prompt not in unique_prompts:
             unique_prompts.append(prompt)
 
-    pool_size = min(5, max(2, len(records) // 20 if len(records) >= 20 else 2), len(unique_prompts))
+    pool_size = min(12, max(3, len(records) // 10 if len(records) >= 20 else 3), len(unique_prompts))
     selected_prompts = unique_prompts[:pool_size]
     if not selected_prompts:
         return []
@@ -221,6 +228,112 @@ async def build_ai_background_pool(records: List[Dict[str, Any]], session_id: st
 
     generated = await asyncio.gather(*(worker(idx, prompt) for idx, prompt in enumerate(selected_prompts)))
     return [image for image in generated if image is not None]
+
+
+def apply_background_variation(base_image: Image.Image, index: int) -> Image.Image:
+    varied = base_image.copy().convert("RGB")
+    width, height = varied.size
+
+    zoom_factor = 1.04 + ((index % 5) * 0.01)
+    crop_width = int(width / zoom_factor)
+    crop_height = int(height / zoom_factor)
+    x_shift = (index * 13) % max(1, width - crop_width + 1)
+    y_shift = (index * 17) % max(1, height - crop_height + 1)
+    varied = varied.crop((x_shift, y_shift, x_shift + crop_width, y_shift + crop_height)).resize((width, height), Image.Resampling.LANCZOS)
+
+    brightness = 0.93 + ((index % 7) * 0.02)
+    contrast = 0.92 + ((index % 6) * 0.03)
+    color = 0.95 + ((index % 5) * 0.02)
+
+    varied = ImageEnhance.Brightness(varied).enhance(brightness)
+    varied = ImageEnhance.Contrast(varied).enhance(contrast)
+    varied = ImageEnhance.Color(varied).enhance(color)
+    return varied
+
+
+def parse_docx_quotes(file_bytes: bytes) -> List[str]:
+    try:
+        document = Document(io.BytesIO(file_bytes))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid Word file. Please upload a .docx file.") from exc
+
+    quotes = [clean_text(paragraph.text) for paragraph in document.paragraphs if clean_text(paragraph.text)]
+    if not quotes:
+        raise HTTPException(status_code=400, detail="No usable quote text found in Word file.")
+    return quotes
+
+
+def parse_image_links(image_links_raw: str) -> List[str]:
+    if not clean_text(image_links_raw):
+        return []
+    chunks = re.split(r"[\n,]", image_links_raw)
+    return [clean_text(chunk) for chunk in chunks if clean_text(chunk).startswith("http")]
+
+
+def load_custom_image_assets(
+    file_entries: List[Dict[str, Any]],
+    image_links_raw: str,
+) -> List[Dict[str, Any]]:
+    assets: List[Dict[str, Any]] = []
+
+    for entry in file_entries:
+        filename = clean_text(entry.get("filename"))
+        content = entry.get("content", b"")
+        if not filename or not content:
+            continue
+        try:
+            image = Image.open(io.BytesIO(content)).convert("RGB")
+            stem = Path(filename).stem
+            assets.append({"slug": slugify_filename(stem, 0), "image": image})
+        except Exception:
+            logger.warning("Skipping invalid custom image file: %s", filename)
+
+    for url in parse_image_links(image_links_raw):
+        try:
+            response = requests.get(url, timeout=20)
+            response.raise_for_status()
+            image = Image.open(io.BytesIO(response.content)).convert("RGB")
+            stem = Path(url.split("?")[0]).stem or "link-image"
+            assets.append({"slug": slugify_filename(stem, 0), "image": image})
+        except Exception:
+            logger.warning("Skipping invalid custom image URL: %s", url)
+
+    return assets
+
+
+async def build_ai_row_backgrounds(records: List[Dict[str, Any]], session_id: str) -> List[Image.Image]:
+    ai_pool = await build_ai_background_pool(records, session_id)
+    if not ai_pool:
+        ai_pool = await asyncio.to_thread(load_backgrounds)
+
+    return [apply_background_variation(ai_pool[index % len(ai_pool)], index) for index in range(len(records))]
+
+
+def build_custom_row_backgrounds(
+    records: List[Dict[str, Any]],
+    assets: List[Dict[str, Any]],
+    mapping_strategy: str,
+) -> List[Image.Image]:
+    if not assets:
+        raise HTTPException(status_code=400, detail="Custom mode requires uploaded images or image links.")
+
+    slug_map = {asset["slug"]: asset["image"] for asset in assets}
+    sequence_images = [asset["image"] for asset in assets]
+    row_backgrounds: List[Image.Image] = []
+
+    for index, row in enumerate(records):
+        pin_name_slug = slugify_filename(row.get("PIN NAME", ""), index)
+        base_image = None
+
+        if mapping_strategy == "pin_name_match_then_sequential":
+            base_image = slug_map.get(pin_name_slug)
+
+        if base_image is None:
+            base_image = sequence_images[index % len(sequence_images)]
+
+        row_backgrounds.append(apply_background_variation(base_image, index))
+
+    return row_backgrounds
 
 
 def normalize_header_name(value: Any) -> str:
@@ -245,7 +358,12 @@ def read_tabular_file(file_name: str, file_bytes: bytes, header: int | None) -> 
 
 def detect_header_row(raw_dataframe: pd.DataFrame) -> int | None:
     scan_limit = min(len(raw_dataframe), 12)
-    required_markers = {"quote", "metatitle", "metadescription", "hashtags"}
+    header_vocabulary = set()
+    for aliases in HEADER_ALIASES.values():
+        header_vocabulary.update(aliases)
+
+    best_row = None
+    best_score = -1
 
     for row_index in range(scan_limit):
         row_values = {
@@ -253,10 +371,17 @@ def detect_header_row(raw_dataframe: pd.DataFrame) -> int | None:
             for value in raw_dataframe.iloc[row_index].tolist()
             if clean_text(value)
         }
-        if required_markers.issubset(row_values):
-            return row_index
+        if not row_values:
+            continue
 
-    return None
+        score = len(row_values.intersection(header_vocabulary))
+        has_primary_marker = "pinname" in row_values or "pin" in row_values
+
+        if has_primary_marker and score > best_score:
+            best_score = score
+            best_row = row_index
+
+    return best_row if best_score >= 3 else None
 
 
 def standardize_dataframe(dataframe: pd.DataFrame) -> pd.DataFrame:
@@ -278,7 +403,8 @@ def standardize_dataframe(dataframe: pd.DataFrame) -> pd.DataFrame:
     for canonical in REQUIRED_COLUMNS:
         column_name = resolve_column(canonical)
         if column_name is None:
-            missing.append(canonical)
+            if canonical in MANDATORY_COLUMNS:
+                missing.append(canonical)
         else:
             resolved_columns[canonical] = column_name
 
@@ -295,8 +421,11 @@ def standardize_dataframe(dataframe: pd.DataFrame) -> pd.DataFrame:
     parsed = pd.DataFrame()
 
     for canonical in REQUIRED_COLUMNS:
-        source_column = resolved_columns[canonical]
-        parsed[canonical] = dataframe[source_column].fillna("").astype(str).map(clean_text)
+        source_column = resolved_columns.get(canonical)
+        if source_column:
+            parsed[canonical] = dataframe[source_column].fillna("").astype(str).map(clean_text)
+        else:
+            parsed[canonical] = ""
 
     topic_column = resolved_columns.get("TAG TOPIC")
     tag_column = normalized_columns.get("tag")
@@ -313,7 +442,21 @@ def standardize_dataframe(dataframe: pd.DataFrame) -> pd.DataFrame:
         parsed["Timing Link"] = link_series.where(link_series != "", timing_series)
 
     parsed = parsed.replace("nan", "")
-    parsed = parsed[(parsed["Quote"] != "") & (parsed["Meta Title"] != "")].reset_index(drop=True)
+    if parsed["Quote"].eq("").all():
+        parsed["Quote"] = parsed["Meta Title"].where(parsed["Meta Title"] != "", parsed["PIN NAME"])
+
+    if parsed["Meta Title"].eq("").all():
+        parsed["Meta Title"] = parsed["Quote"]
+
+    if parsed["Meta Description"].eq("").all():
+        parsed["Meta Description"] = parsed["Quote"]
+
+    if not parsed.empty:
+        first_row_text = " ".join(parsed.iloc[0].astype(str).tolist()).lower()
+        if "pin title" in first_row_text and "pin description" in first_row_text:
+            parsed = parsed.iloc[1:].reset_index(drop=True)
+
+    parsed = parsed[parsed["PIN NAME"] != ""].reset_index(drop=True)
 
     if parsed.empty:
         raise HTTPException(status_code=400, detail="No valid rows found after parsing. Please verify your header row.")
@@ -323,6 +466,17 @@ def standardize_dataframe(dataframe: pd.DataFrame) -> pd.DataFrame:
 
 def parse_file(file_name: str, file_bytes: bytes) -> pd.DataFrame:
     initial = read_tabular_file(file_name, file_bytes, header=0)
+    has_unnamed = any(str(column).lower().startswith("unnamed") for column in initial.columns)
+
+    if has_unnamed:
+        raw = read_tabular_file(file_name, file_bytes, header=None)
+        header_row = detect_header_row(raw)
+        if header_row is not None:
+            header_values = [clean_text(value) for value in raw.iloc[header_row].tolist()]
+            rebuilt = raw.iloc[header_row + 1 :].copy().reset_index(drop=True)
+            rebuilt.columns = header_values
+            return standardize_dataframe(rebuilt)
+
     try:
         return standardize_dataframe(initial)
     except HTTPException as first_error:
@@ -442,23 +596,19 @@ def create_pin_payload(
     session_id: str,
     session_dir: Path,
     text_position: str,
-    template_image: Image.Image | None,
-    backgrounds: List[Image.Image],
+    background_image: Image.Image,
+    generation_mode: str,
 ) -> Dict[str, Any]:
-    quote = clean_text(row.get("Quote"))
+    pin_name = clean_text(row.get("PIN NAME"))
+    quote = clean_text(row.get("Quote")) or pin_name
     prompt = build_ai_prompt(
         row.get("Meta Title", ""),
         row.get("Meta Description", ""),
         row.get("TAG TOPIC", ""),
     )
 
-    if template_image is not None:
-        base_image = template_image.copy()
-    else:
-        base_image = backgrounds[index % len(backgrounds)].copy()
-
-    rendered = render_pin(base_image, quote, text_position)
-    base_slug = slugify_filename(quote, index)
+    rendered = render_pin(background_image, quote, text_position)
+    base_slug = slugify_filename(pin_name or quote, index)
     file_name = make_unique_filename(session_dir, base_slug)
     file_path = session_dir / file_name
     rendered.save(file_path, format="PNG")
@@ -466,6 +616,7 @@ def create_pin_payload(
     return {
         "pin_id": str(uuid.uuid4()),
         "session_id": session_id,
+        "pin_name": pin_name,
         "quote": quote,
         "meta_title": clean_text(row.get("Meta Title")),
         "meta_description": clean_text(row.get("Meta Description")),
@@ -474,6 +625,7 @@ def create_pin_payload(
         "creator": clean_text(row.get("CREATOR")),
         "timing_link": clean_text(row.get("Timing Link")),
         "ai_prompt": prompt,
+        "mode": generation_mode,
         "filename": file_name,
         "image_url": f"/api/static/pins/{session_id}/{file_name}",
         "file_path": str(file_path),
@@ -521,25 +673,53 @@ async def get_status_checks():
 @api_router.post("/pins/generate", response_model=GeneratePinsResponse)
 async def generate_pins(
     data_file: UploadFile = File(...),
+    mode: str = Form("ai"),
     template_image: UploadFile | None = File(default=None),
     template_text_position: str = Form("center"),
     max_pins: int = Form(50),
+    quotes_file: UploadFile | None = File(default=None),
+    custom_images: List[UploadFile] | None = File(default=None),
+    image_links: str = Form(""),
+    mapping_strategy: str = Form("pin_name_match_then_sequential"),
 ):
+    mode = clean_text(mode).lower()
+    if mode not in {"ai", "custom"}:
+        raise HTTPException(status_code=400, detail="mode must be 'ai' or 'custom'")
+
     if max_pins < 1:
         raise HTTPException(status_code=400, detail="max_pins must be at least 1")
 
     if template_text_position not in {"top", "center", "bottom"}:
         raise HTTPException(status_code=400, detail="template_text_position must be top, center, or bottom")
 
-    total_limit = min(max_pins, 500)
+    total_limit = min(max_pins, 100)
+    data_file_name = clean_text(data_file.filename)
+    if not data_file_name.lower().endswith((".xlsx", ".csv")):
+        raise HTTPException(
+            status_code=400,
+            detail="Primary metadata file must be .xlsx or .csv. Use quotes_file for .docx uploads.",
+        )
+
     file_bytes = await data_file.read()
-    dataframe = parse_file(data_file.filename or "", file_bytes)
+    dataframe = parse_file(data_file_name, file_bytes)
 
     if dataframe.empty:
         raise HTTPException(status_code=400, detail="Uploaded file has no rows")
 
     dataframe = dataframe.head(total_limit)
     records = dataframe.to_dict(orient="records")
+
+    if quotes_file is not None and quotes_file.filename:
+        if not quotes_file.filename.lower().endswith(".docx"):
+            raise HTTPException(status_code=400, detail="quotes_file must be a .docx Word document")
+        quote_lines = parse_docx_quotes(await quotes_file.read())
+        for index, row in enumerate(records):
+            if index < len(quote_lines):
+                row["Quote"] = quote_lines[index]
+
+    for row in records:
+        if not clean_text(row.get("Quote")):
+            row["Quote"] = clean_text(row.get("PIN NAME"))
 
     session_id = str(uuid.uuid4())
     session_dir = GENERATED_PINS_DIR / session_id
@@ -553,12 +733,30 @@ async def generate_pins(
         except Exception as exc:
             raise HTTPException(status_code=400, detail="Invalid template image") from exc
 
-    if template_obj is None:
-        backgrounds = await build_ai_background_pool(records, session_id)
-        if not backgrounds:
-            backgrounds = await asyncio.to_thread(load_backgrounds)
+    if template_obj is not None:
+        row_backgrounds = [template_obj.copy() for _ in records]
     else:
-        backgrounds = []
+        if mode == "custom":
+            file_entries: List[Dict[str, Any]] = []
+            for uploaded_image in custom_images or []:
+                if uploaded_image and uploaded_image.filename:
+                    file_entries.append(
+                        {
+                            "filename": uploaded_image.filename,
+                            "content": await uploaded_image.read(),
+                        }
+                    )
+
+            assets = await asyncio.to_thread(load_custom_image_assets, file_entries, image_links)
+            row_backgrounds = await asyncio.to_thread(
+                build_custom_row_backgrounds,
+                records,
+                assets,
+                mapping_strategy,
+            )
+        else:
+            row_backgrounds = await build_ai_row_backgrounds(records, session_id)
+
     generation_progress = {
         "generated_count": 0,
         "total_count": len(records),
@@ -567,7 +765,7 @@ async def generate_pins(
     GENERATION_TRACKER[session_id] = generation_progress
     progress_lock = asyncio.Lock()
 
-    semaphore = asyncio.Semaphore(12)
+    semaphore = asyncio.Semaphore(10)
 
     async def process_row(index: int, row: Dict[str, Any]) -> Dict[str, Any]:
         async with semaphore:
@@ -578,8 +776,8 @@ async def generate_pins(
                 session_id,
                 session_dir,
                 template_text_position,
-                template_obj,
-                backgrounds,
+                row_backgrounds[index].copy(),
+                mode,
             )
             async with progress_lock:
                 generation_progress["generated_count"] += 1

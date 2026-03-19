@@ -29,6 +29,13 @@ export default function PinCard({ pin, backendUrl, onDownload }) {
       </CardContent>
       <CardFooter className="flex flex-col items-start gap-3 border-t border-slate-100 p-4 dark:border-slate-700">
         <p
+          className="line-clamp-1 text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-300"
+          data-testid={`pin-name-text-${pin.pin_id}`}
+          title={pin.pin_name || pin.filename}
+        >
+          {pin.pin_name || pin.filename}
+        </p>
+        <p
           className="line-clamp-3 text-sm font-semibold text-slate-800 dark:text-slate-100"
           data-testid={`pin-quote-text-${pin.pin_id}`}
           title={pin.quote}

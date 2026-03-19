@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import axios from "axios";
-import { Download, FileSpreadsheet, ImagePlus, Moon, Sparkles, Sun } from "lucide-react";
+import { Download, FileSpreadsheet, ImagePlus, Moon, Sparkles, Sun, WandSparkles, Images } from "lucide-react";
 import { Toaster, toast } from "sonner";
 import "@/App.css";
 import PinCard from "@/components/PinCard";
@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -25,7 +26,11 @@ const batchSizeOptions = ["50", "100"];
 
 function App() {
   const [excelFile, setExcelFile] = useState(null);
+  const [wordFile, setWordFile] = useState(null);
   const [templateFile, setTemplateFile] = useState(null);
+  const [mode, setMode] = useState("ai");
+  const [customImageFiles, setCustomImageFiles] = useState([]);
+  const [imageLinks, setImageLinks] = useState("");
   const [textPosition, setTextPosition] = useState("center");
   const [batchSize, setBatchSize] = useState("50");
   const [progressValue, setProgressValue] = useState(0);
@@ -63,7 +68,12 @@ function App() {
 
   const handleGenerate = async () => {
     if (!excelFile) {
-      toast.error("Please upload an Excel or CSV file first.");
+      toast.error("Please upload your Excel or CSV metadata file first.");
+      return;
+    }
+
+    if (mode === "custom" && !templateFile && customImageFiles.length === 0 && !imageLinks.trim()) {
+      toast.error("Custom mode needs uploaded images, image links, or a template.");
       return;
     }
 
@@ -80,6 +90,17 @@ function App() {
       if (templateFile) {
         formData.append("template_image", templateFile);
       }
+      if (wordFile) {
+        formData.append("quotes_file", wordFile);
+      }
+
+      customImageFiles.forEach((file) => {
+        formData.append("custom_images", file);
+      });
+
+      formData.append("mode", mode);
+      formData.append("image_links", imageLinks);
+      formData.append("mapping_strategy", "pin_name_match_then_sequential");
       formData.append("template_text_position", textPosition);
       formData.append("max_pins", batchSize);
 
@@ -163,7 +184,7 @@ function App() {
                 Bulk Pin Creator Studio
               </h1>
               <p className="max-w-2xl text-sm text-slate-600 sm:text-base dark:text-slate-300" data-testid="app-subheading-text">
-                Upload Excel, auto-build prompts, generate in 50 or 100-pin batches, and export metadata for future Pinterest automation.
+                Dual mode system: AI-generated backgrounds or custom image bulk mode, with 50/100 batch output and full metadata export.
               </p>
             </div>
             <Button
@@ -185,12 +206,38 @@ function App() {
                 Upload & Generate
               </CardTitle>
               <CardDescription data-testid="upload-panel-description">
-                Supports .xlsx and .csv with required columns.
+                Pick AI mode or Custom mode, then upload metadata and assets.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="space-y-2">
-                <Label htmlFor="excel-file" data-testid="excel-upload-label">Excel / CSV file</Label>
+                <Label data-testid="mode-selector-label">Generation mode</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    type="button"
+                    variant={mode === "ai" ? "default" : "outline"}
+                    className={mode === "ai" ? "rounded-full bg-[#E60023] text-white" : "rounded-full"}
+                    onClick={() => setMode("ai")}
+                    data-testid="mode-ai-button"
+                  >
+                    <WandSparkles className="h-4 w-4" />
+                    AI Pins
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={mode === "custom" ? "default" : "outline"}
+                    className={mode === "custom" ? "rounded-full bg-[#E60023] text-white" : "rounded-full"}
+                    onClick={() => setMode("custom")}
+                    data-testid="mode-custom-button"
+                  >
+                    <Images className="h-4 w-4" />
+                    Custom Pins
+                  </Button>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="excel-file" data-testid="excel-upload-label">Metadata Excel / CSV</Label>
                 <Input
                   id="excel-file"
                   type="file"
@@ -199,6 +246,49 @@ function App() {
                   data-testid="excel-upload-input"
                 />
               </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="word-file" data-testid="word-upload-label">Word quotes file (optional .docx)</Label>
+                <Input
+                  id="word-file"
+                  type="file"
+                  accept=".docx"
+                  onChange={(event) => setWordFile(event.target.files?.[0] || null)}
+                  data-testid="word-upload-input"
+                />
+              </div>
+
+              {mode === "custom" ? (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="custom-images" data-testid="custom-images-upload-label">Custom images upload</Label>
+                    <Input
+                      id="custom-images"
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      webkitdirectory="true"
+                      onChange={(event) => setCustomImageFiles(Array.from(event.target.files || []))}
+                      data-testid="custom-images-upload-input"
+                    />
+                    <p className="text-xs text-slate-500 dark:text-slate-300" data-testid="custom-mapping-hint-text">
+                      Mapping uses PIN NAME filename match first, then sequential fallback.
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="image-links" data-testid="image-links-label">Image links (optional, one per line)</Label>
+                    <Textarea
+                      id="image-links"
+                      value={imageLinks}
+                      onChange={(event) => setImageLinks(event.target.value)}
+                      className="min-h-24"
+                      placeholder="https://..."
+                      data-testid="image-links-textarea"
+                    />
+                  </div>
+                </>
+              ) : null}
 
               <div className="space-y-2">
                 <Label htmlFor="template-file" data-testid="template-upload-label">Template image (optional)</Label>
@@ -276,7 +366,7 @@ function App() {
                 ) : (
                   <>
                     <ImagePlus className="h-4 w-4" />
-                    Generate Pins
+                    Generate {mode === "ai" ? "AI" : "Custom"} Pins
                   </>
                 )}
               </Button>
@@ -290,7 +380,7 @@ function App() {
                   Generation Status
                 </CardTitle>
                 <CardDescription data-testid="generation-status-subtitle">
-                  Real-time progress for bulk rendering in your selected 50/100 pin batch.
+                  Real-time progress for {mode === "ai" ? "AI" : "Custom"} rendering in your selected 50/100 pin batch.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
