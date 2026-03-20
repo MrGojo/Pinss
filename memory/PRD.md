@@ -76,3 +76,14 @@ Build a web application that automatically generates Pinterest Pins from an uplo
 3. Add pre-generation validation report for malformed rows.
 4. Add pagination/filtering in preview grid for large sessions.
 5. Add phase-2 Pinterest automation scaffolding routes.
+
+
+### 2026-03-20 (Structure Handling + Dual Mode Expansion)
+- Added dual-mode generation controls: **AI Pins** and **Custom Pins**.
+- Added updated parser support for complex two-section Excel layouts (PIN + PINREST INPUT).
+- Enforced PIN generation rules: visual text uses **Quote**, filename uses **PIN NAME** slug.
+- Added row-level validation and skipping logic for missing PIN NAME/Quote, with warnings returned to UI.
+- Stored **PINREST INPUT** as metadata for future automation while excluding it from visible pin design.
+- Added custom mode image inputs: multiple file uploads + image links, with PIN NAME filename matching then sequential fallback.
+- Added optional Word (.docx) quote merge support with Excel/CSV metadata.
+- Preserved white quote text, bottom CTA strip, and unique background variation across generated pins.

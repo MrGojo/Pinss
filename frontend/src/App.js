@@ -116,6 +116,9 @@ function App() {
       setSessionId(response.data.session_id || "");
       generationSucceeded = true;
       toast.success(`Generated ${response.data.total_generated} Pinterest pins successfully.`);
+      if (response.data.skipped_rows > 0) {
+        toast.warning(`Skipped ${response.data.skipped_rows} row(s) missing PIN NAME or Quote.`);
+      }
     } catch (error) {
       const message = error?.response?.data?.detail || "Pin generation failed. Please check your file format.";
       setProgressValue(0);

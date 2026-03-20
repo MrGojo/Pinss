@@ -60,6 +60,7 @@ class PinRecord(BaseModel):
     session_id: str
     pin_name: str = ""
     quote: str
+    pinrest_input: str = ""
     meta_title: str
     meta_description: str
     hashtags: str
@@ -76,6 +77,8 @@ class PinRecord(BaseModel):
 class GeneratePinsResponse(BaseModel):
     session_id: str
     total_generated: int
+    skipped_rows: int = 0
+    warnings: List[str] = []
     pins: List[PinRecord]
 
 
@@ -87,6 +90,7 @@ class GenerationSummary(BaseModel):
 REQUIRED_COLUMNS = [
     "PIN NAME",
     "Quote",
+    "PINREST INPUT",
     "Meta Title",
     "Meta Description",
     "Hashtags",
@@ -96,8 +100,9 @@ REQUIRED_COLUMNS = [
 ]
 
 HEADER_ALIASES: Dict[str, List[str]] = {
-    "PIN NAME": ["pinname", "pin", "name", "filename", "imagefilename"],
-    "Quote": ["quote", "quotes", "pinquote", "quotation", "pin", "pintitle1stlinebold"],
+    "PIN NAME": ["pinname"],
+    "Quote": ["quote", "quotes", "pinquote", "quotation", "pintitle2ndline"],
+    "PINREST INPUT": ["pinrestinput"],
     "Meta Title": ["metatitle", "title", "pintitle", "pinrestinput", "pintitle1stlinebold"],
     "Meta Description": ["metadescription", "metadesc", "description", "pindescription", "pindescription1", "pindescription2"],
     "Hashtags": ["hashtags", "hashtag", "tags"],
@@ -106,7 +111,7 @@ HEADER_ALIASES: Dict[str, List[str]] = {
     "Timing Link": ["timinglink", "link", "url", "destinationlink", "timing", "links"],
 }
 
-MANDATORY_COLUMNS = {"PIN NAME"}
+MANDATORY_COLUMNS = {"PIN NAME", "Quote"}
 
 MOCK_IMAGE_URLS = [
     "https://static.prod-images.emergentagent.com/jobs/bf3547ed-e1b7-4e48-9bc6-e1aa83f707d1/images/328f52aa34fc8ae7916966a2d8faab8917150a4703a8c1f48bf8160a77a47d7b.png",
@@ -356,6 +361,60 @@ def read_tabular_file(file_name: str, file_bytes: bytes, header: int | None) -> 
     return dataframe
 
 
+def is_two_section_pin_layout(raw_dataframe: pd.DataFrame) -> bool:
+    if len(raw_dataframe) < 3:
+        return False
+
+    first_row = {
+        normalize_header_name(value)
+        for value in raw_dataframe.iloc[0].tolist()
+        if clean_text(value)
+    }
+    second_row = {
+        normalize_header_name(value)
+        for value in raw_dataframe.iloc[1].tolist()
+        if clean_text(value)
+    }
+
+    return (
+        "pin" in first_row
+        and "pinrestinput" in first_row
+        and "pintitle1stlinebold" in second_row
+        and "pintitle2ndline" in second_row
+    )
+
+
+def parse_two_section_pin_layout(raw_dataframe: pd.DataFrame) -> pd.DataFrame:
+    data = raw_dataframe.iloc[2:].copy().reset_index(drop=True)
+    if data.empty:
+        raise HTTPException(status_code=400, detail="No data rows found in PIN section.")
+
+    def get_column(index: int) -> pd.Series:
+        if index >= data.shape[1]:
+            return pd.Series([""] * len(data))
+        return data.iloc[:, index].fillna("").astype(str).map(clean_text)
+
+    parsed = pd.DataFrame(
+        {
+            "PIN NAME": get_column(0),
+            "Quote": get_column(1),
+            "PINREST INPUT": get_column(2),
+            "Meta Title": get_column(3),
+            "Meta Description": get_column(4),
+            "Hashtags": get_column(5),
+            "TAG TOPIC": "",
+            "CREATOR": "",
+            "Timing Link": get_column(6),
+        }
+    )
+
+    parsed = parsed[(parsed["PIN NAME"] != "") & (parsed["Quote"] != "")].reset_index(drop=True)
+    if parsed.empty:
+        raise HTTPException(status_code=400, detail="No valid rows with PIN NAME and Quote found in PIN section.")
+
+    return parsed
+
+
 def detect_header_row(raw_dataframe: pd.DataFrame) -> int | None:
     scan_limit = min(len(raw_dataframe), 12)
     header_vocabulary = set()
@@ -375,6 +434,10 @@ def detect_header_row(raw_dataframe: pd.DataFrame) -> int | None:
             continue
 
         score = len(row_values.intersection(header_vocabulary))
+        if "quote" in row_values:
+            score += 6
+        if "pinname" in row_values:
+            score += 4
         has_primary_marker = "pinname" in row_values or "pin" in row_values
 
         if has_primary_marker and score > best_score:
@@ -442,11 +505,8 @@ def standardize_dataframe(dataframe: pd.DataFrame) -> pd.DataFrame:
         parsed["Timing Link"] = link_series.where(link_series != "", timing_series)
 
     parsed = parsed.replace("nan", "")
-    if parsed["Quote"].eq("").all():
-        parsed["Quote"] = parsed["Meta Title"].where(parsed["Meta Title"] != "", parsed["PIN NAME"])
-
     if parsed["Meta Title"].eq("").all():
-        parsed["Meta Title"] = parsed["Quote"]
+        parsed["Meta Title"] = parsed["PINREST INPUT"].where(parsed["PINREST INPUT"] != "", parsed["PIN NAME"])
 
     if parsed["Meta Description"].eq("").all():
         parsed["Meta Description"] = parsed["Quote"]
@@ -465,11 +525,14 @@ def standardize_dataframe(dataframe: pd.DataFrame) -> pd.DataFrame:
 
 
 def parse_file(file_name: str, file_bytes: bytes) -> pd.DataFrame:
+    raw = read_tabular_file(file_name, file_bytes, header=None)
+    if is_two_section_pin_layout(raw):
+        return parse_two_section_pin_layout(raw)
+
     initial = read_tabular_file(file_name, file_bytes, header=0)
     has_unnamed = any(str(column).lower().startswith("unnamed") for column in initial.columns)
 
     if has_unnamed:
-        raw = read_tabular_file(file_name, file_bytes, header=None)
         header_row = detect_header_row(raw)
         if header_row is not None:
             header_values = [clean_text(value) for value in raw.iloc[header_row].tolist()]
@@ -480,7 +543,6 @@ def parse_file(file_name: str, file_bytes: bytes) -> pd.DataFrame:
     try:
         return standardize_dataframe(initial)
     except HTTPException as first_error:
-        raw = read_tabular_file(file_name, file_bytes, header=None)
         header_row = detect_header_row(raw)
         if header_row is None:
             raise first_error
@@ -618,6 +680,7 @@ def create_pin_payload(
         "session_id": session_id,
         "pin_name": pin_name,
         "quote": quote,
+        "pinrest_input": clean_text(row.get("PINREST INPUT")),
         "meta_title": clean_text(row.get("Meta Title")),
         "meta_description": clean_text(row.get("Meta Description")),
         "hashtags": clean_text(row.get("Hashtags")),
@@ -717,9 +780,27 @@ async def generate_pins(
             if index < len(quote_lines):
                 row["Quote"] = quote_lines[index]
 
-    for row in records:
-        if not clean_text(row.get("Quote")):
-            row["Quote"] = clean_text(row.get("PIN NAME"))
+    valid_records: List[Dict[str, Any]] = []
+    skipped_warnings: List[str] = []
+
+    for row_index, row in enumerate(records, start=1):
+        pin_name_value = clean_text(row.get("PIN NAME"))
+        quote_value = clean_text(row.get("Quote"))
+
+        if not pin_name_value or not quote_value:
+            skipped_warnings.append(
+                f"Skipped row {row_index}: missing {'PIN NAME' if not pin_name_value else ''}{' and ' if (not pin_name_value and not quote_value) else ''}{'Quote' if not quote_value else ''}."
+            )
+            continue
+
+        row["PIN NAME"] = pin_name_value
+        row["Quote"] = quote_value
+        valid_records.append(row)
+
+    if not valid_records:
+        raise HTTPException(status_code=400, detail="No valid rows found with both PIN NAME and Quote.")
+
+    records = valid_records
 
     session_id = str(uuid.uuid4())
     session_dir = GENERATED_PINS_DIR / session_id
@@ -805,6 +886,8 @@ async def generate_pins(
     return {
         "session_id": session_id,
         "total_generated": len(generated),
+        "skipped_rows": len(skipped_warnings),
+        "warnings": skipped_warnings[:50],
         "pins": [to_public_pin(pin) for pin in generated],
     }
 
