@@ -101,7 +101,7 @@ REQUIRED_COLUMNS = [
 
 HEADER_ALIASES: Dict[str, List[str]] = {
     "PIN NAME": ["pinname"],
-    "Quote": ["quote", "quotes", "pinquote", "quotation", "pintitle2ndline"],
+    "Quote": ["quote", "quotes", "pinquote", "quotation", "pintitle1stlinebold"],
     "PINREST INPUT": ["pinrestinput"],
     "Meta Title": ["metatitle", "title", "pintitle", "pinrestinput", "pintitle1stlinebold"],
     "Meta Description": ["metadescription", "metadesc", "description", "pindescription", "pindescription1", "pindescription2"],
@@ -309,7 +309,10 @@ def load_custom_image_assets(
 async def build_ai_row_backgrounds(records: List[Dict[str, Any]], session_id: str) -> List[Image.Image]:
     ai_pool = await build_ai_background_pool(records, session_id)
     if not ai_pool:
-        ai_pool = await asyncio.to_thread(load_backgrounds)
+        raise HTTPException(
+            status_code=400,
+            detail="AI image generation is unavailable right now. Please check your Gemini key/quota and try again.",
+        )
 
     return [apply_background_variation(ai_pool[index % len(ai_pool)], index) for index in range(len(records))]
 
@@ -397,12 +400,12 @@ def parse_two_section_pin_layout(raw_dataframe: pd.DataFrame) -> pd.DataFrame:
     parsed = pd.DataFrame(
         {
             "PIN NAME": get_column(0),
-            "Quote": get_column(1),
+            "Quote": get_column(0),
             "PINREST INPUT": get_column(2),
             "Meta Title": get_column(3),
             "Meta Description": get_column(4),
             "Hashtags": get_column(5),
-            "TAG TOPIC": "",
+            "TAG TOPIC": get_column(1),
             "CREATOR": "",
             "Timing Link": get_column(6),
         }
@@ -564,6 +567,19 @@ def get_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFon
     return ImageFont.load_default()
 
 
+def get_quote_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    dancing_script = ROOT_DIR / "assets" / "fonts" / "DancingScript-Bold.ttf"
+    candidates = [
+        str(dancing_script),
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    ]
+
+    for candidate in candidates:
+        if Path(candidate).exists():
+            return ImageFont.truetype(candidate, size=size)
+    return ImageFont.load_default()
+
+
 def wrap_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont, max_width: int) -> List[str]:
     words = text.split()
     if not words:
@@ -601,12 +617,12 @@ def render_pin(background: Image.Image, quote: str, text_position: str) -> Image
     quote_text = clean_text(quote) or "Create your momentum one step at a time"
     quote_area_width = 860
 
-    selected_font = get_font(82, bold=True)
+    selected_font = get_quote_font(72)
     lines = wrap_text(draw, quote_text, selected_font, quote_area_width)
-    line_height = 92
+    line_height = 80
     while (len(lines) > 6 or max(len(line) for line in lines) > 55) and line_height > 56:
-        line_height -= 8
-        selected_font = get_font(line_height, bold=True)
+        line_height -= 6
+        selected_font = get_quote_font(line_height)
         lines = wrap_text(draw, quote_text, selected_font, quote_area_width)
 
     total_text_height = len(lines) * (line_height + 12)
@@ -625,8 +641,8 @@ def render_pin(background: Image.Image, quote: str, text_position: str) -> Image
         line_width = line_box[2] - line_box[0]
         x = int((1000 - line_width) / 2)
         y = start_y + index * (line_height + 12)
-        draw.text((x + 2, y + 2), line, font=selected_font, fill=(0, 0, 0, 145))
-        draw.text((x, y), line, font=selected_font, fill=(255, 255, 255, 252))
+        draw.text((x + 2, y + 2), line, font=selected_font, fill=(0, 0, 0, 165))
+        draw.text((x, y), line, font=selected_font, fill=(255, 255, 255, 255), stroke_width=1, stroke_fill=(255, 255, 255, 255))
 
     cta_font = get_font(44, bold=True)
     cta_text = "Tap to learn more"
