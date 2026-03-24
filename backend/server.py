@@ -79,6 +79,9 @@ class GeneratePinsResponse(BaseModel):
     total_generated: int
     skipped_rows: int = 0
     warnings: List[str] = []
+    mode_used: str = "ai"
+    auto_switched: bool = False
+    switch_message: str = ""
     pins: List[PinRecord]
 
 
@@ -121,6 +124,28 @@ MOCK_IMAGE_URLS = [
 ]
 
 GENERATION_TRACKER: Dict[str, Dict[str, Any]] = {}
+
+
+class AIQuotaExceededError(Exception):
+    pass
+
+
+class AIImageGenerationError(Exception):
+    pass
+
+
+def is_quota_error_message(message: str) -> bool:
+    lowered = clean_text(message).lower()
+    markers = [
+        "quota",
+        "resource_exhausted",
+        "resourceexhausted",
+        "429",
+        "rate limit",
+        "too many requests",
+        "insufficient quota",
+    ]
+    return any(marker in lowered for marker in markers)
 
 
 def clean_text(value: Any) -> str:
@@ -170,7 +195,13 @@ def load_backgrounds() -> List[Image.Image]:
     return backgrounds
 
 
-async def generate_gemini_background(prompt: str, api_key: str, session_id: str, index: int) -> Image.Image:
+async def generate_gemini_background(
+    prompt: str,
+    api_key: str,
+    session_id: str,
+    index: int,
+    timeout_seconds: int = 90,
+) -> Image.Image:
     chat = LlmChat(
         api_key=api_key,
         session_id=f"{session_id}-bg-{index}-{uuid.uuid4()}",
@@ -189,13 +220,20 @@ async def generate_gemini_background(prompt: str, api_key: str, session_id: str,
         )
     )
 
-    _, images = await asyncio.wait_for(chat.send_message_multimodal_response(message), timeout=90)
+    try:
+        _, images = await asyncio.wait_for(chat.send_message_multimodal_response(message), timeout=timeout_seconds)
+    except Exception as exc:
+        raw_message = str(exc)
+        if is_quota_error_message(raw_message):
+            raise AIQuotaExceededError(raw_message) from exc
+        raise AIImageGenerationError(raw_message) from exc
+
     if not images:
-        raise RuntimeError("Gemini returned no image")
+        raise AIImageGenerationError("Gemini returned no image")
 
     image_base64 = images[0].get("data", "")
     if not image_base64:
-        raise RuntimeError("Gemini returned empty image data")
+        raise AIImageGenerationError("Gemini returned empty image data")
 
     decoded = base64.b64decode(image_base64)
     return Image.open(io.BytesIO(decoded)).convert("RGB")
@@ -204,7 +242,7 @@ async def generate_gemini_background(prompt: str, api_key: str, session_id: str,
 async def build_ai_background_pool(records: List[Dict[str, Any]], session_id: str) -> List[Image.Image]:
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
-        return []
+        raise AIImageGenerationError("Gemini API key missing")
 
     unique_prompts: List[str] = []
     for row in records:
@@ -219,7 +257,15 @@ async def build_ai_background_pool(records: List[Dict[str, Any]], session_id: st
     pool_size = min(12, max(3, len(records) // 10 if len(records) >= 20 else 3), len(unique_prompts))
     selected_prompts = unique_prompts[:pool_size]
     if not selected_prompts:
-        return []
+        raise AIImageGenerationError("No prompts available for image generation")
+
+    preflight_image = await generate_gemini_background(
+        selected_prompts[0],
+        api_key,
+        session_id,
+        0,
+        timeout_seconds=25,
+    )
 
     semaphore = asyncio.Semaphore(2)
 
@@ -227,12 +273,23 @@ async def build_ai_background_pool(records: List[Dict[str, Any]], session_id: st
         async with semaphore:
             try:
                 return await generate_gemini_background(prompt, api_key, session_id, idx)
+            except AIQuotaExceededError:
+                raise
             except Exception as exc:
                 logger.warning("Gemini background generation failed at index %s: %s", idx, exc)
                 return None
 
-    generated = await asyncio.gather(*(worker(idx, prompt) for idx, prompt in enumerate(selected_prompts)))
-    return [image for image in generated if image is not None]
+    generated: List[Image.Image | None] = [preflight_image]
+    remaining_prompts = selected_prompts[1:]
+    if remaining_prompts:
+        generated.extend(
+            await asyncio.gather(*(worker(idx + 1, prompt) for idx, prompt in enumerate(remaining_prompts)))
+        )
+
+    usable = [image for image in generated if image is not None]
+    if not usable:
+        raise AIImageGenerationError("Gemini did not return usable images")
+    return usable
 
 
 def apply_background_variation(base_image: Image.Image, index: int) -> Image.Image:
@@ -308,11 +365,6 @@ def load_custom_image_assets(
 
 async def build_ai_row_backgrounds(records: List[Dict[str, Any]], session_id: str) -> List[Image.Image]:
     ai_pool = await build_ai_background_pool(records, session_id)
-    if not ai_pool:
-        raise HTTPException(
-            status_code=400,
-            detail="AI image generation is unavailable right now. Please check your Gemini key/quota and try again.",
-        )
 
     return [apply_background_variation(ai_pool[index % len(ai_pool)], index) for index in range(len(records))]
 
@@ -821,6 +873,9 @@ async def generate_pins(
     session_id = str(uuid.uuid4())
     session_dir = GENERATED_PINS_DIR / session_id
     session_dir.mkdir(parents=True, exist_ok=True)
+    mode_used = mode
+    auto_switched = False
+    switch_message = ""
 
     template_obj = None
     if template_image is not None and template_image.filename:
@@ -830,29 +885,74 @@ async def generate_pins(
         except Exception as exc:
             raise HTTPException(status_code=400, detail="Invalid template image") from exc
 
+    custom_file_entries: List[Dict[str, Any]] = []
+    for uploaded_image in custom_images or []:
+        if uploaded_image and uploaded_image.filename:
+            custom_file_entries.append(
+                {
+                    "filename": uploaded_image.filename,
+                    "content": await uploaded_image.read(),
+                }
+            )
+
+    custom_assets: List[Dict[str, Any]] = []
+    if custom_file_entries or clean_text(image_links):
+        custom_assets = await asyncio.to_thread(load_custom_image_assets, custom_file_entries, image_links)
+
     if template_obj is not None:
         row_backgrounds = [template_obj.copy() for _ in records]
     else:
         if mode == "custom":
-            file_entries: List[Dict[str, Any]] = []
-            for uploaded_image in custom_images or []:
-                if uploaded_image and uploaded_image.filename:
-                    file_entries.append(
-                        {
-                            "filename": uploaded_image.filename,
-                            "content": await uploaded_image.read(),
-                        }
-                    )
-
-            assets = await asyncio.to_thread(load_custom_image_assets, file_entries, image_links)
             row_backgrounds = await asyncio.to_thread(
                 build_custom_row_backgrounds,
                 records,
-                assets,
+                custom_assets,
                 mapping_strategy,
             )
         else:
-            row_backgrounds = await build_ai_row_backgrounds(records, session_id)
+            try:
+                row_backgrounds = await build_ai_row_backgrounds(records, session_id)
+            except AIQuotaExceededError:
+                if custom_assets:
+                    row_backgrounds = await asyncio.to_thread(
+                        build_custom_row_backgrounds,
+                        records,
+                        custom_assets,
+                        mapping_strategy,
+                    )
+                    mode_used = "custom"
+                    auto_switched = True
+                    switch_message = (
+                        "Gemini quota/rate limit hit. We automatically switched to Custom mode "
+                        "using your uploaded custom images/links."
+                    )
+                else:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            "Gemini quota/rate limit reached and no custom images/links were provided "
+                            "for auto-switch. Upload custom assets and retry."
+                        ),
+                    )
+            except AIImageGenerationError as exc:
+                if custom_assets:
+                    row_backgrounds = await asyncio.to_thread(
+                        build_custom_row_backgrounds,
+                        records,
+                        custom_assets,
+                        mapping_strategy,
+                    )
+                    mode_used = "custom"
+                    auto_switched = True
+                    switch_message = (
+                        "Gemini image generation is currently unavailable. "
+                        "We automatically switched to Custom mode using your uploaded images/links."
+                    )
+                else:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"AI image generation failed: {clean_text(exc)[:220]}",
+                    ) from exc
 
     generation_progress = {
         "generated_count": 0,
@@ -874,7 +974,7 @@ async def generate_pins(
                 session_dir,
                 template_text_position,
                 row_backgrounds[index].copy(),
-                mode,
+                mode_used,
             )
             async with progress_lock:
                 generation_progress["generated_count"] += 1
@@ -904,6 +1004,9 @@ async def generate_pins(
         "total_generated": len(generated),
         "skipped_rows": len(skipped_warnings),
         "warnings": skipped_warnings[:50],
+        "mode_used": mode_used,
+        "auto_switched": auto_switched,
+        "switch_message": switch_message,
         "pins": [to_public_pin(pin) for pin in generated],
     }
 

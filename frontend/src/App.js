@@ -17,6 +17,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -38,6 +46,8 @@ function App() {
   const [pins, setPins] = useState([]);
   const [sessionId, setSessionId] = useState("");
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const [showSwitchModal, setShowSwitchModal] = useState(false);
+  const [switchModalMessage, setSwitchModalMessage] = useState("");
 
   const generatedCount = useMemo(() => pins.length, [pins]);
 
@@ -78,10 +88,11 @@ function App() {
     }
 
     let generationSucceeded = false;
+    let progressTimer = null;
     try {
       setIsGenerating(true);
       setProgressValue(5);
-      const progressTimer = setInterval(() => {
+      progressTimer = setInterval(() => {
         setProgressValue((current) => (current < 92 ? current + 6 : current));
       }, 350);
 
@@ -116,6 +127,15 @@ function App() {
       setSessionId(response.data.session_id || "");
       generationSucceeded = true;
       toast.success(`Generated ${response.data.total_generated} Pinterest pins successfully.`);
+
+      if (response.data.auto_switched) {
+        const switchMessage = response.data.switch_message || "AI quota issue detected. Switched to Custom mode.";
+        setMode(response.data.mode_used || "custom");
+        setSwitchModalMessage(switchMessage);
+        setShowSwitchModal(true);
+        toast.warning("AI quota issue detected. Switched to Custom mode automatically.");
+      }
+
       if (response.data.skipped_rows > 0) {
         toast.warning(`Skipped ${response.data.skipped_rows} row(s) missing PIN NAME or Quote.`);
       }
@@ -123,7 +143,17 @@ function App() {
       const message = error?.response?.data?.detail || "Pin generation failed. Please check your file format.";
       setProgressValue(0);
       toast.error(message);
+
+       if (mode === "ai" && message.toLowerCase().includes("quota")) {
+        setSwitchModalMessage(
+          `${message} Upload custom images/links and retry so we can auto-switch instantly.`
+        );
+        setShowSwitchModal(true);
+      }
     } finally {
+      if (progressTimer) {
+        clearInterval(progressTimer);
+      }
       setIsGenerating(false);
       if (!generationSucceeded) {
         setPins([]);
@@ -177,6 +207,22 @@ function App() {
     >
       <Toaster richColors position="top-right" />
       <main className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-4 py-10 lg:px-8">
+        <Dialog open={showSwitchModal} onOpenChange={setShowSwitchModal}>
+          <DialogContent data-testid="quota-switch-modal">
+            <DialogHeader>
+              <DialogTitle data-testid="quota-switch-modal-title">Generation Mode Auto-Switched</DialogTitle>
+              <DialogDescription data-testid="quota-switch-modal-message">
+                {switchModalMessage}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button onClick={() => setShowSwitchModal(false)} data-testid="quota-switch-modal-close-button">
+                Got it
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
         <header className="rounded-3xl border border-red-100 bg-white/80 p-6 shadow-[0_15px_40px_rgba(239,68,68,0.08)] backdrop-blur dark:border-slate-700 dark:bg-slate-900/80 dark:shadow-[0_15px_40px_rgba(2,6,23,0.45)]">
           <div className="flex flex-wrap items-start justify-between gap-5">
             <div className="space-y-3">
