@@ -8,7 +8,8 @@ import os
 import logging
 from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
+from collections import deque
 import uuid
 from datetime import datetime, timezone
 import asyncio
@@ -16,6 +17,7 @@ import base64
 import io
 import json
 import re
+import shutil
 import zipfile
 
 import pandas as pd
@@ -30,10 +32,40 @@ load_dotenv(ROOT_DIR / '.env')
 GENERATED_PINS_DIR = ROOT_DIR / "generated_pins"
 GENERATED_PINS_DIR.mkdir(parents=True, exist_ok=True)
 
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+# MongoDB optional — omit MONGO_URL for stateless deploys (memory-only sessions; downloads work until evicted or restart).
+mongo_url = os.environ.get("MONGO_URL", "").strip()
+client: Optional[AsyncIOMotorClient] = None
+db: Optional[Any] = None
+if mongo_url:
+    client = AsyncIOMotorClient(mongo_url)
+    db_name = os.environ.get("DB_NAME", "pinterest_pins").strip() or "pinterest_pins"
+    db = client[db_name]
+
+MAX_EPHEMERAL_SESSIONS = max(1, int(os.environ.get("MAX_EPHEMERAL_SESSIONS", "40")))
+_EPHEMERAL_LOCK = asyncio.Lock()
+_EPHEMERAL_SESSION_ORDER: deque[str] = deque()
+_EPHEMERAL_PINS_BY_SESSION: Dict[str, List[Dict[str, Any]]] = {}
+_EPHEMERAL_PIN_BY_ID: Dict[str, Dict[str, Any]] = {}
+
+
+async def _evict_oldest_ephemeral_sessions() -> None:
+    while len(_EPHEMERAL_SESSION_ORDER) > MAX_EPHEMERAL_SESSIONS:
+        old_sid = _EPHEMERAL_SESSION_ORDER.popleft()
+        old_pins = _EPHEMERAL_PINS_BY_SESSION.pop(old_sid, [])
+        for pin in old_pins:
+            _EPHEMERAL_PIN_BY_ID.pop(pin.get("pin_id"), None)
+        old_dir = GENERATED_PINS_DIR / old_sid
+        if old_dir.is_dir():
+            await asyncio.to_thread(lambda: shutil.rmtree(old_dir, ignore_errors=True))
+
+
+async def _remember_ephemeral_session(session_id: str, pins: List[Dict[str, Any]]) -> None:
+    async with _EPHEMERAL_LOCK:
+        _EPHEMERAL_SESSION_ORDER.append(session_id)
+        _EPHEMERAL_PINS_BY_SESSION[session_id] = pins
+        for pin in pins:
+            _EPHEMERAL_PIN_BY_ID[pin["pin_id"]] = pin
+        await _evict_oldest_ephemeral_sessions()
 
 # Create the main app without a prefix
 app = FastAPI()
@@ -862,18 +894,23 @@ async def health():
 
 @api_router.post("/status", response_model=StatusCheck)
 async def create_status_check(input: StatusCheckCreate):
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database is not configured (MONGO_URL unset).")
     status_dict = input.model_dump()
     status_obj = StatusCheck(**status_dict)
-    
+
     # Convert to dict and serialize datetime to ISO string for MongoDB
     doc = status_obj.model_dump()
-    doc['timestamp'] = doc['timestamp'].isoformat()
-    
+    doc["timestamp"] = doc["timestamp"].isoformat()
+
     _ = await db.status_checks.insert_one(doc)
     return status_obj
 
+
 @api_router.get("/status", response_model=List[StatusCheck])
 async def get_status_checks():
+    if db is None:
+        return []
     # Exclude MongoDB's _id field from the query results
     status_checks = await db.status_checks.find({}, {"_id": 0}).to_list(1000)
     
@@ -1101,19 +1138,24 @@ async def generate_pins(
     generated = await asyncio.gather(*tasks)
     generation_progress["completed"] = True
 
-    await db.pin_records.insert_many([dict(pin) for pin in generated])
-    await db.generation_sessions.update_one(
-        {"session_id": session_id},
-        {
-            "$set": {
-                "session_id": session_id,
-                "generated_count": len(generated),
-                "completed": True,
-                "updated_at": datetime.now(timezone.utc).isoformat(),
-            }
-        },
-        upsert=True,
-    )
+    pin_docs = [dict(pin) for pin in generated]
+    if db is not None:
+        await db.pin_records.insert_many(pin_docs)
+        await db.generation_sessions.update_one(
+            {"session_id": session_id},
+            {
+                "$set": {
+                    "session_id": session_id,
+                    "generated_count": len(generated),
+                    "completed": True,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }
+            },
+            upsert=True,
+        )
+    else:
+        await _remember_ephemeral_session(session_id, pin_docs)
+
     GENERATION_TRACKER.pop(session_id, None)
 
     return {
@@ -1133,10 +1175,14 @@ async def generate_pins(
 
 @api_router.get("/pins/{session_id}", response_model=List[PinRecord])
 async def get_generated_pins(session_id: str):
-    pins = await db.pin_records.find(
-        {"session_id": session_id}, {"_id": 0, "file_path": 0}
-    ).to_list(length=2000)
-    return pins
+    if db is not None:
+        pins = await db.pin_records.find(
+            {"session_id": session_id}, {"_id": 0, "file_path": 0}
+        ).to_list(length=2000)
+        return pins
+    async with _EPHEMERAL_LOCK:
+        raw = _EPHEMERAL_PINS_BY_SESSION.get(session_id, [])
+    return [to_public_pin(p) for p in raw]
 
 
 @api_router.get("/pins/progress/{session_id}", response_model=GenerationSummary)
@@ -1148,18 +1194,27 @@ async def get_generation_progress(session_id: str):
             "completed": bool(live_progress.get("completed", False)),
         }
 
-    session = await db.generation_sessions.find_one({"session_id": session_id}, {"_id": 0})
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-    return {
-        "generated_count": int(session.get("generated_count", 0)),
-        "completed": bool(session.get("completed", False)),
-    }
+    if db is not None:
+        session = await db.generation_sessions.find_one({"session_id": session_id}, {"_id": 0})
+        if session:
+            return {
+                "generated_count": int(session.get("generated_count", 0)),
+                "completed": bool(session.get("completed", False)),
+            }
+    async with _EPHEMERAL_LOCK:
+        ephemeral = _EPHEMERAL_PINS_BY_SESSION.get(session_id)
+    if ephemeral is not None:
+        return {"generated_count": len(ephemeral), "completed": True}
+    raise HTTPException(status_code=404, detail="Session not found")
 
 
 @api_router.get("/pins/download/{pin_id}")
 async def download_pin(pin_id: str):
-    document = await db.pin_records.find_one({"pin_id": pin_id}, {"_id": 0})
+    if db is not None:
+        document = await db.pin_records.find_one({"pin_id": pin_id}, {"_id": 0})
+    else:
+        async with _EPHEMERAL_LOCK:
+            document = _EPHEMERAL_PIN_BY_ID.get(pin_id)
     if not document:
         raise HTTPException(status_code=404, detail="Pin not found")
 
@@ -1172,7 +1227,11 @@ async def download_pin(pin_id: str):
 
 @api_router.get("/pins/download-all/{session_id}")
 async def download_all_pins(session_id: str):
-    documents = await db.pin_records.find({"session_id": session_id}, {"_id": 0}).to_list(length=2000)
+    if db is not None:
+        documents = await db.pin_records.find({"session_id": session_id}, {"_id": 0}).to_list(length=2000)
+    else:
+        async with _EPHEMERAL_LOCK:
+            documents = list(_EPHEMERAL_PINS_BY_SESSION.get(session_id, []))
     if not documents:
         raise HTTPException(status_code=404, detail="No pins found for this session")
 
@@ -1188,10 +1247,15 @@ async def download_all_pins(session_id: str):
 
 @api_router.get("/pins/export/{session_id}")
 async def export_metadata(session_id: str, export_format: str = "csv"):
-    documents = await db.pin_records.find(
-        {"session_id": session_id},
-        {"_id": 0, "file_path": 0},
-    ).to_list(length=2000)
+    if db is not None:
+        documents = await db.pin_records.find(
+            {"session_id": session_id},
+            {"_id": 0, "file_path": 0},
+        ).to_list(length=2000)
+    else:
+        async with _EPHEMERAL_LOCK:
+            raw = _EPHEMERAL_PINS_BY_SESSION.get(session_id, [])
+        documents = [to_public_pin(p) for p in raw]
 
     if not documents:
         raise HTTPException(status_code=404, detail="No metadata found for this session")
@@ -1248,4 +1312,5 @@ logger = logging.getLogger(__name__)
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
-    client.close()
+    if client is not None:
+        client.close()
