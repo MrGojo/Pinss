@@ -855,6 +855,11 @@ def to_public_pin(document: Dict[str, Any]) -> Dict[str, Any]:
 async def root():
     return {"message": "Hello World"}
 
+
+@api_router.get("/health")
+async def health():
+    return {"status": "ok"}
+
 @api_router.post("/status", response_model=StatusCheck)
 async def create_status_check(input: StatusCheckCreate):
     status_dict = input.model_dump()
@@ -1211,10 +1216,25 @@ async def export_metadata(session_id: str, export_format: str = "csv"):
 # Include the router in the main app
 app.include_router(api_router)
 
+_frontend_static = os.environ.get("FRONTEND_STATIC_DIR", "").strip()
+if _frontend_static:
+    _static_path = Path(_frontend_static).resolve()
+    if _static_path.is_dir():
+        app.mount("/", StaticFiles(directory=str(_static_path), html=True), name="frontend")
+
+_cors_raw = os.environ.get("CORS_ORIGINS", "*").strip()
+_cors_origins = (
+    ["*"]
+    if _cors_raw == "*"
+    else [o.strip() for o in _cors_raw.split(",") if o.strip()]
+)
+# Browsers reject Allow-Credentials: true with Allow-Origin: * — use explicit origins for split deploy.
+_cors_credentials = "*" not in _cors_origins
+
 app.add_middleware(
     CORSMiddleware,
-    allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_credentials=_cors_credentials,
+    allow_origins=_cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )

@@ -26,8 +26,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
+/** Empty string = same origin (Docker / single-service deploy). Set full URL when API is on another host. */
+const BACKEND_URL = (process.env.REACT_APP_BACKEND_URL ?? "").replace(/\/$/, "");
+const API = BACKEND_URL ? `${BACKEND_URL}/api` : "/api";
 
 const textPositionOptions = ["top", "center", "bottom"];
 const batchSizeOptions = ["50", "100"];

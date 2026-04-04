@@ -57,7 +57,7 @@
   },
   "scripts": {
     "start": "craco start",
-    "build": "react-scripts build",
+    "build": "craco build",
     "test": "craco test"
   },
   "browserslist": {
@@ -91,7 +91,7 @@
     "ajv": "^8.12.0"
   },
   "engines": {
-  "node": "18.x"
+    "node": ">=18 <25"
   },
   "packageManager": "yarn@1.22.22"
 }
