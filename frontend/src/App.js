@@ -38,6 +38,7 @@ function App() {
   const [templateFile, setTemplateFile] = useState(null);
   const [mode, setMode] = useState("ai");
   const [customImageFiles, setCustomImageFiles] = useState([]);
+  const [customZipFile, setCustomZipFile] = useState(null);
   const [imageLinks, setImageLinks] = useState("");
   const [textPosition, setTextPosition] = useState("center");
   const [batchSize, setBatchSize] = useState("50");
@@ -48,6 +49,12 @@ function App() {
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [showSwitchModal, setShowSwitchModal] = useState(false);
   const [switchModalMessage, setSwitchModalMessage] = useState("");
+  const [skippedWarnings, setSkippedWarnings] = useState([]);
+  const [mappingStats, setMappingStats] = useState({
+    total_rows_processed: 0,
+    images_matched: 0,
+    missing_images_count: 0,
+  });
 
   const generatedCount = useMemo(() => pins.length, [pins]);
 
@@ -82,7 +89,13 @@ function App() {
       return;
     }
 
-    if (mode === "custom" && !templateFile && customImageFiles.length === 0 && !imageLinks.trim()) {
+    if (
+      mode === "custom" &&
+      !templateFile &&
+      customImageFiles.length === 0 &&
+      !customZipFile &&
+      !imageLinks.trim()
+    ) {
       toast.error("Custom mode needs uploaded images, image links, or a template.");
       return;
     }
@@ -108,6 +121,9 @@ function App() {
       customImageFiles.forEach((file) => {
         formData.append("custom_images", file);
       });
+      if (customZipFile) {
+        formData.append("custom_image_zip", customZipFile);
+      }
 
       formData.append("mode", mode);
       formData.append("image_links", imageLinks);
@@ -125,6 +141,12 @@ function App() {
       setProgressValue(100);
       setPins(response.data.pins || []);
       setSessionId(response.data.session_id || "");
+      setSkippedWarnings(response.data.warnings || []);
+      setMappingStats({
+        total_rows_processed: response.data.total_rows_processed || 0,
+        images_matched: response.data.images_matched || 0,
+        missing_images_count: response.data.missing_images_count || 0,
+      });
       generationSucceeded = true;
       toast.success(`Generated ${response.data.total_generated} Pinterest pins successfully.`);
 
@@ -158,6 +180,12 @@ function App() {
       if (!generationSucceeded) {
         setPins([]);
         setSessionId("");
+        setSkippedWarnings([]);
+        setMappingStats({
+          total_rows_processed: 0,
+          images_matched: 0,
+          missing_images_count: 0,
+        });
       }
     }
   };
@@ -310,6 +338,17 @@ function App() {
               {mode === "custom" ? (
                 <>
                   <div className="space-y-2">
+                    <Label htmlFor="custom-image-zip" data-testid="custom-image-zip-label">Custom images ZIP (optional)</Label>
+                    <Input
+                      id="custom-image-zip"
+                      type="file"
+                      accept=".zip"
+                      onChange={(event) => setCustomZipFile(event.target.files?.[0] || null)}
+                      data-testid="custom-image-zip-input"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
                     <Label htmlFor="custom-images" data-testid="custom-images-upload-label">Custom images upload</Label>
                     <Input
                       id="custom-images"
@@ -321,7 +360,7 @@ function App() {
                       data-testid="custom-images-upload-input"
                     />
                     <p className="text-xs text-slate-500 dark:text-slate-300" data-testid="custom-mapping-hint-text">
-                      Mapping uses PIN NAME filename match first, then sequential fallback.
+                      Mapping uses PIC NO. only (e.g. row PIC NO. 5 matches 5.jpg/png/webp).
                     </p>
                   </div>
 
@@ -445,6 +484,11 @@ function App() {
                     Session: {sessionId || "Not started"}
                   </span>
                 </div>
+                <div className="grid grid-cols-1 gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 sm:grid-cols-3">
+                  <div data-testid="rows-processed-stat">Rows processed: {mappingStats.total_rows_processed}</div>
+                  <div data-testid="images-matched-stat">Images matched: {mappingStats.images_matched}</div>
+                  <div data-testid="missing-images-stat">Missing images: {mappingStats.missing_images_count}</div>
+                </div>
                 <div className="flex flex-wrap gap-3 pt-2">
                   <Button
                     onClick={handleDownloadAll}
@@ -476,6 +520,28 @@ function App() {
                 </div>
               </CardContent>
             </Card>
+
+            {skippedWarnings.length > 0 ? (
+              <Card className="rounded-3xl border border-amber-200 bg-amber-50/80 shadow-[0_8px_20px_rgba(180,83,9,0.08)] dark:border-amber-700 dark:bg-amber-950/30">
+                <CardHeader>
+                  <CardTitle className="heading-font text-xl text-amber-900 dark:text-amber-200" data-testid="skipped-rows-title">
+                    Skipped Rows Details
+                  </CardTitle>
+                  <CardDescription data-testid="skipped-rows-description">
+                    These rows were skipped due to missing required data or missing PIC NO. image matches.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <ul className="max-h-40 space-y-2 overflow-y-auto text-sm text-amber-900 dark:text-amber-100" data-testid="skipped-rows-list">
+                    {skippedWarnings.map((warning, index) => (
+                      <li key={`${warning}-${index}`} data-testid={`skipped-row-item-${index}`}>
+                        • {warning}
+                      </li>
+                    ))}
+                  </ul>
+                </CardContent>
+              </Card>
+            ) : null}
 
             <section className="space-y-5" data-testid="preview-grid-section">
               <div className="flex items-center justify-between gap-4">

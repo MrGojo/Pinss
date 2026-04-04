@@ -59,6 +59,7 @@ class PinRecord(BaseModel):
     pin_id: str
     session_id: str
     pin_name: str = ""
+    pic_no: str = ""
     quote: str
     pinrest_input: str = ""
     meta_title: str
@@ -82,6 +83,9 @@ class GeneratePinsResponse(BaseModel):
     mode_used: str = "ai"
     auto_switched: bool = False
     switch_message: str = ""
+    total_rows_processed: int = 0
+    images_matched: int = 0
+    missing_images_count: int = 0
     pins: List[PinRecord]
 
 
@@ -91,6 +95,7 @@ class GenerationSummary(BaseModel):
 
 
 REQUIRED_COLUMNS = [
+    "PIC NO.",
     "PIN NAME",
     "Quote",
     "PINREST INPUT",
@@ -103,6 +108,7 @@ REQUIRED_COLUMNS = [
 ]
 
 HEADER_ALIASES: Dict[str, List[str]] = {
+    "PIC NO.": ["picno", "picno.", "picnumber", "pic"],
     "PIN NAME": ["pinname"],
     "Quote": ["quote", "quotes", "pinquote", "quotation", "pintitle1stlinebold"],
     "PINREST INPUT": ["pinrestinput"],
@@ -122,6 +128,8 @@ MOCK_IMAGE_URLS = [
     "https://static.prod-images.emergentagent.com/jobs/bf3547ed-e1b7-4e48-9bc6-e1aa83f707d1/images/78b6c57beda2383b84eb8a1aeb417b512678dde21a228d423cdb33dc6268a902.png",
     "https://static.prod-images.emergentagent.com/jobs/bf3547ed-e1b7-4e48-9bc6-e1aa83f707d1/images/426acf8cd530ec7a944d38ff5a60f405e5214cfdf821cc7f02a53edaef6881ea.png",
 ]
+
+SUPPORTED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 
 GENERATION_TRACKER: Dict[str, Dict[str, Any]] = {}
 
@@ -150,6 +158,43 @@ def is_quota_error_message(message: str) -> bool:
 
 def clean_text(value: Any) -> str:
     return str(value or "").strip()
+
+
+def normalize_pic_no(value: Any) -> str:
+    raw = clean_text(value)
+    if not raw:
+        return ""
+
+    sanitized = raw.replace(",", "").strip()
+    if re.fullmatch(r"\d+", sanitized):
+        return str(int(sanitized))
+
+    if re.fullmatch(r"\d+\.0+", sanitized):
+        return str(int(float(sanitized)))
+
+    return ""
+
+
+def is_supported_image_name(filename: str) -> bool:
+    return Path(filename).suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS
+
+
+def extract_zip_image_entries(zip_bytes: bytes) -> List[Dict[str, Any]]:
+    entries: List[Dict[str, Any]] = []
+    try:
+        with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as archive:
+            for item in archive.infolist():
+                if item.is_dir():
+                    continue
+                base_name = Path(item.filename).name
+                if not base_name or not is_supported_image_name(base_name):
+                    continue
+                with archive.open(item) as file_obj:
+                    entries.append({"filename": base_name, "content": file_obj.read()})
+    except zipfile.BadZipFile as exc:
+        raise HTTPException(status_code=400, detail="Invalid ZIP file for custom images") from exc
+
+    return entries
 
 
 def slugify_filename(text: str, index: int) -> str:
@@ -341,22 +386,37 @@ def load_custom_image_assets(
     for entry in file_entries:
         filename = clean_text(entry.get("filename"))
         content = entry.get("content", b"")
-        if not filename or not content:
+        if not filename or not content or not is_supported_image_name(filename):
             continue
         try:
             image = Image.open(io.BytesIO(content)).convert("RGB")
             stem = Path(filename).stem
-            assets.append({"slug": slugify_filename(stem, 0), "image": image})
+            assets.append(
+                {
+                    "slug": slugify_filename(stem, 0),
+                    "pic_no": normalize_pic_no(stem),
+                    "image": image,
+                }
+            )
         except Exception:
             logger.warning("Skipping invalid custom image file: %s", filename)
 
     for url in parse_image_links(image_links_raw):
         try:
+            file_name = Path(url.split("?")[0]).name
+            if not is_supported_image_name(file_name):
+                continue
             response = requests.get(url, timeout=20)
             response.raise_for_status()
             image = Image.open(io.BytesIO(response.content)).convert("RGB")
             stem = Path(url.split("?")[0]).stem or "link-image"
-            assets.append({"slug": slugify_filename(stem, 0), "image": image})
+            assets.append(
+                {
+                    "slug": slugify_filename(stem, 0),
+                    "pic_no": normalize_pic_no(stem),
+                    "image": image,
+                }
+            )
         except Exception:
             logger.warning("Skipping invalid custom image URL: %s", url)
 
@@ -373,27 +433,45 @@ def build_custom_row_backgrounds(
     records: List[Dict[str, Any]],
     assets: List[Dict[str, Any]],
     mapping_strategy: str,
-) -> List[Image.Image]:
+) -> Dict[str, Any]:
     if not assets:
         raise HTTPException(status_code=400, detail="Custom mode requires uploaded images or image links.")
 
-    slug_map = {asset["slug"]: asset["image"] for asset in assets}
-    sequence_images = [asset["image"] for asset in assets]
+    pic_map: Dict[str, Image.Image] = {}
+    for asset in assets:
+        pic_no_key = clean_text(asset.get("pic_no"))
+        if pic_no_key and pic_no_key not in pic_map:
+            pic_map[pic_no_key] = asset["image"]
+
     row_backgrounds: List[Image.Image] = []
+    matched_records: List[Dict[str, Any]] = []
+    missing_warnings: List[str] = []
+    missing_count = 0
+    matched_count = 0
 
-    for index, row in enumerate(records):
-        pin_name_slug = slugify_filename(row.get("PIN NAME", ""), index)
-        base_image = None
-
-        if mapping_strategy == "pin_name_match_then_sequential":
-            base_image = slug_map.get(pin_name_slug)
+    for index, row in enumerate(records, start=1):
+        pic_no_key = normalize_pic_no(row.get("PIC NO."))
+        base_image = pic_map.get(pic_no_key) if pic_no_key else None
 
         if base_image is None:
-            base_image = sequence_images[index % len(sequence_images)]
+            missing_count += 1
+            missing_warnings.append(f"Image not found for PIC NO. {pic_no_key or 'N/A'} (row {index}).")
+            continue
 
-        row_backgrounds.append(apply_background_variation(base_image, index))
+        matched_records.append(row)
+        matched_count += 1
+        row_backgrounds.append(apply_background_variation(base_image, index - 1))
 
-    return row_backgrounds
+    if not matched_records:
+        raise HTTPException(status_code=400, detail="No custom images matched the provided PIC NO. values.")
+
+    return {
+        "records": matched_records,
+        "backgrounds": row_backgrounds,
+        "matched_count": matched_count,
+        "missing_count": missing_count,
+        "warnings": missing_warnings,
+    }
 
 
 def normalize_header_name(value: Any) -> str:
@@ -747,6 +825,7 @@ def create_pin_payload(
         "pin_id": str(uuid.uuid4()),
         "session_id": session_id,
         "pin_name": pin_name,
+        "pic_no": normalize_pic_no(row.get("PIC NO.")),
         "quote": quote,
         "pinrest_input": clean_text(row.get("PINREST INPUT")),
         "meta_title": clean_text(row.get("Meta Title")),
@@ -809,7 +888,8 @@ async def generate_pins(
     template_text_position: str = Form("center"),
     max_pins: int = Form(50),
     quotes_file: UploadFile | None = File(default=None),
-    custom_images: List[UploadFile] | None = File(default=None),
+    custom_images: List[UploadFile] = File(default=[]),
+    custom_image_zip: UploadFile | None = File(default=None),
     image_links: str = Form(""),
     mapping_strategy: str = Form("pin_name_match_then_sequential"),
 ):
@@ -839,6 +919,7 @@ async def generate_pins(
 
     dataframe = dataframe.head(total_limit)
     records = dataframe.to_dict(orient="records")
+    total_rows_processed = len(records)
 
     if quotes_file is not None and quotes_file.filename:
         if not quotes_file.filename.lower().endswith(".docx"):
@@ -854,6 +935,11 @@ async def generate_pins(
     for row_index, row in enumerate(records, start=1):
         pin_name_value = clean_text(row.get("PIN NAME"))
         quote_value = clean_text(row.get("Quote"))
+        pic_no_value = normalize_pic_no(row.get("PIC NO."))
+
+        if mode == "custom" and not pic_no_value:
+            skipped_warnings.append(f"Skipped row {row_index}: missing or invalid PIC NO.")
+            continue
 
         if not pin_name_value or not quote_value:
             skipped_warnings.append(
@@ -863,6 +949,7 @@ async def generate_pins(
 
         row["PIN NAME"] = pin_name_value
         row["Quote"] = quote_value
+        row["PIC NO."] = pic_no_value
         valid_records.append(row)
 
     if not valid_records:
@@ -895,31 +982,51 @@ async def generate_pins(
                 }
             )
 
+    if custom_image_zip is not None and custom_image_zip.filename:
+        if not custom_image_zip.filename.lower().endswith(".zip"):
+            raise HTTPException(status_code=400, detail="custom_image_zip must be a .zip file")
+        zip_entries = extract_zip_image_entries(await custom_image_zip.read())
+        custom_file_entries.extend(zip_entries)
+
     custom_assets: List[Dict[str, Any]] = []
     if custom_file_entries or clean_text(image_links):
         custom_assets = await asyncio.to_thread(load_custom_image_assets, custom_file_entries, image_links)
 
     if template_obj is not None:
         row_backgrounds = [template_obj.copy() for _ in records]
+        images_matched = len(records)
+        missing_images_count = 0
     else:
         if mode == "custom":
-            row_backgrounds = await asyncio.to_thread(
+            custom_result = await asyncio.to_thread(
                 build_custom_row_backgrounds,
                 records,
                 custom_assets,
                 mapping_strategy,
             )
+            records = custom_result["records"]
+            row_backgrounds = custom_result["backgrounds"]
+            images_matched = custom_result["matched_count"]
+            missing_images_count = custom_result["missing_count"]
+            skipped_warnings.extend(custom_result["warnings"])
         else:
             try:
                 row_backgrounds = await build_ai_row_backgrounds(records, session_id)
+                images_matched = len(records)
+                missing_images_count = 0
             except AIQuotaExceededError:
                 if custom_assets:
-                    row_backgrounds = await asyncio.to_thread(
+                    custom_result = await asyncio.to_thread(
                         build_custom_row_backgrounds,
                         records,
                         custom_assets,
                         mapping_strategy,
                     )
+                    records = custom_result["records"]
+                    row_backgrounds = custom_result["backgrounds"]
+                    images_matched = custom_result["matched_count"]
+                    missing_images_count = custom_result["missing_count"]
+                    skipped_warnings.extend(custom_result["warnings"])
                     mode_used = "custom"
                     auto_switched = True
                     switch_message = (
@@ -936,12 +1043,17 @@ async def generate_pins(
                     )
             except AIImageGenerationError as exc:
                 if custom_assets:
-                    row_backgrounds = await asyncio.to_thread(
+                    custom_result = await asyncio.to_thread(
                         build_custom_row_backgrounds,
                         records,
                         custom_assets,
                         mapping_strategy,
                     )
+                    records = custom_result["records"]
+                    row_backgrounds = custom_result["backgrounds"]
+                    images_matched = custom_result["matched_count"]
+                    missing_images_count = custom_result["missing_count"]
+                    skipped_warnings.extend(custom_result["warnings"])
                     mode_used = "custom"
                     auto_switched = True
                     switch_message = (
@@ -1007,6 +1119,9 @@ async def generate_pins(
         "mode_used": mode_used,
         "auto_switched": auto_switched,
         "switch_message": switch_message,
+        "total_rows_processed": total_rows_processed,
+        "images_matched": images_matched,
+        "missing_images_count": missing_images_count,
         "pins": [to_public_pin(pin) for pin in generated],
     }
 
