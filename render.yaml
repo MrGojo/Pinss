@@ -12,11 +12,7 @@ services:
     dockerContext: .
     healthCheckPath: /api/health
     envVars:
-      # Required for AI-generated backgrounds (Google AI Studio → API key)
       - key: GEMINI_API_KEY
         sync: false
-      # One URL for UI+API: * is fine. For split deploy, set https://your-frontend.vercel.app
       - key: CORS_ORIGINS
         value: "*"
-      # Optional: only if you want MongoDB. Leave unset for simple “generate & download” mode.
-      # Add in dashboard: MONGO_URL, DB_NAME
