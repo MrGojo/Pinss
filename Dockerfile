@@ -1,7 +1,8 @@
 # Single-service image: FastAPI serves /api/* and the React production build at /
 # Build from repo root: docker build -t pinterest-bott .
 
-FROM node:18-alpine AS frontend
+# react-router-dom 7.x requires Node >= 20
+FROM node:20-alpine AS frontend
 WORKDIR /app/frontend
 # Reliable installs on slow CI networks; skip source maps for smaller/faster builds
 ENV CI=false \
