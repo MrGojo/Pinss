@@ -22,7 +22,8 @@ import zipfile
 
 import pandas as pd
 import requests
-from emergentintegrations.llm.chat import LlmChat, UserMessage
+from google import genai
+from google.genai import types as genai_types
 from PIL import Image, ImageDraw, ImageFont, ImageOps, ImageEnhance
 from docx import Document
 
@@ -272,6 +273,75 @@ def load_backgrounds() -> List[Image.Image]:
     return backgrounds
 
 
+def _image_bytes_from_genai_response(response: Any) -> bytes | None:
+    """Extract first image bytes from google-genai generate_content response."""
+    candidates = getattr(response, "candidates", None) or []
+    for candidate in candidates:
+        content = getattr(candidate, "content", None)
+        if not content:
+            continue
+        for part in getattr(content, "parts", None) or []:
+            inline = getattr(part, "inline_data", None)
+            if not inline:
+                continue
+            data = getattr(inline, "data", None)
+            if data is None:
+                continue
+            if isinstance(data, str):
+                return base64.b64decode(data)
+            if isinstance(data, (bytes, bytearray)):
+                return bytes(data)
+    return None
+
+
+def _generate_gemini_image_sync(prompt: str, api_key: str) -> bytes:
+    """Blocking call to Google Gen AI (image-capable Gemini). Not on PyPI: replaced emergentintegrations."""
+    client = genai.Client(api_key=api_key)
+    system_instruction = (
+        "You generate photorealistic Pinterest-style vertical background images. "
+        "Never include text, logos, or watermarks in the image."
+    )
+    user_text = (
+        "Create a high-quality photorealistic Pinterest background image in vertical composition (2:3 ratio). "
+        "Modern clean aesthetic, soft cinematic lighting, strong subject clarity, no text in image. "
+        f"Context: {prompt}"
+    )
+    config = genai_types.GenerateContentConfig(
+        system_instruction=system_instruction,
+        response_modalities=["IMAGE", "TEXT"],
+    )
+    # Try models in order (API availability varies by account / rollout).
+    model_ids = [
+        "gemini-2.0-flash-preview-image-generation",
+        "gemini-2.5-flash-image",
+        "gemini-3-pro-image-preview",
+    ]
+    last_detail = ""
+    for model_id in model_ids:
+        try:
+            response = client.models.generate_content(
+                model=model_id,
+                contents=user_text,
+                config=config,
+            )
+            raw = _image_bytes_from_genai_response(response)
+            if raw:
+                return raw
+            last_detail = f"model {model_id} returned no image part"
+            logger.warning("Gemini %s: %s", model_id, last_detail)
+        except AIQuotaExceededError:
+            raise
+        except Exception as exc:
+            raw_message = str(exc)
+            if is_quota_error_message(raw_message):
+                raise AIQuotaExceededError(raw_message) from exc
+            last_detail = f"{model_id}: {exc}"
+            logger.warning("Gemini image generation failed (%s)", last_detail)
+    raise AIImageGenerationError(
+        last_detail or "Gemini image generation failed (no image in response for all models)"
+    )
+
+
 async def generate_gemini_background(
     prompt: str,
     api_key: str,
@@ -279,41 +349,28 @@ async def generate_gemini_background(
     index: int,
     timeout_seconds: int = 90,
 ) -> Image.Image:
-    chat = LlmChat(
-        api_key=api_key,
-        session_id=f"{session_id}-bg-{index}-{uuid.uuid4()}",
-        system_message=(
-            "You generate photorealistic Pinterest-style vertical background images. "
-            "Never include text, logos, or watermarks in the image."
-        ),
-    )
-    chat.with_model("gemini", "gemini-3-pro-image-preview").with_params(modalities=["image", "text"])
-
-    message = UserMessage(
-        text=(
-            "Create a high-quality photorealistic Pinterest background image in vertical composition (2:3 ratio). "
-            "Modern clean aesthetic, soft cinematic lighting, strong subject clarity, no text in image. "
-            f"Context: {prompt}"
-        )
-    )
-
+    del session_id, index  # kept for API compatibility with callers
     try:
-        _, images = await asyncio.wait_for(chat.send_message_multimodal_response(message), timeout=timeout_seconds)
+        raw_bytes = await asyncio.wait_for(
+            asyncio.to_thread(_generate_gemini_image_sync, prompt, api_key),
+            timeout=timeout_seconds,
+        )
+    except asyncio.TimeoutError as exc:
+        raise AIImageGenerationError("Gemini request timed out") from exc
+    except AIQuotaExceededError:
+        raise
+    except AIImageGenerationError:
+        raise
     except Exception as exc:
         raw_message = str(exc)
         if is_quota_error_message(raw_message):
             raise AIQuotaExceededError(raw_message) from exc
         raise AIImageGenerationError(raw_message) from exc
 
-    if not images:
-        raise AIImageGenerationError("Gemini returned no image")
-
-    image_base64 = images[0].get("data", "")
-    if not image_base64:
+    if not raw_bytes:
         raise AIImageGenerationError("Gemini returned empty image data")
 
-    decoded = base64.b64decode(image_base64)
-    return Image.open(io.BytesIO(decoded)).convert("RGB")
+    return Image.open(io.BytesIO(raw_bytes)).convert("RGB")
 
 
 async def build_ai_background_pool(records: List[Dict[str, Any]], session_id: str) -> List[Image.Image]:
