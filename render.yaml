@@ -1,8 +1,5 @@
 # Render Blueprint: https://render.com/docs/blueprint-spec
-#
-# Full-stack (UI+API in one service): Dockerfile below.
-# Split deploy (API only): set dockerfilePath to ./Dockerfile.api and deploy frontend on Vercel/Netlify.
-# For no-database mode: do not set MONGO_URL (pins stay on the server until download or eviction).
+# Set GEMINI_API_KEY in the Render dashboard (Environment) — never put the real key in this file.
 
 services:
   - type: web
