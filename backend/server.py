@@ -834,21 +834,25 @@ def render_pin(background: Image.Image, quote: str, text_position: str) -> Image
     draw.rectangle([(0, 1500 - bar_height), (1000, 1500)], fill=(255, 255, 255, 248))
 
     quote_text = clean_text(quote) or "Create your momentum one step at a time"
-    quote_area_width = 860
+    # Slightly narrower wrap so larger type still fits cleanly on 1000px-wide canvas
+    quote_area_width = 820
 
-    selected_font = get_quote_font(72)
+    # Larger default type for readability (incl. older viewers); scale down only when necessary
+    line_height = 96
+    selected_font = get_quote_font(line_height)
     lines = wrap_text(draw, quote_text, selected_font, quote_area_width)
-    line_height = 80
-    while (len(lines) > 6 or max(len(line) for line in lines) > 55) and line_height > 56:
-        line_height -= 6
+    while (len(lines) > 5 or max(len(line) for line in lines) > 52) and line_height > 68:
+        line_height -= 5
         selected_font = get_quote_font(line_height)
         lines = wrap_text(draw, quote_text, selected_font, quote_area_width)
 
-    total_text_height = len(lines) * (line_height + 12)
+    line_gap = 18
+    total_text_height = len(lines) * (line_height + line_gap)
+    # "bottom" = lower on the canvas, closer to the white bar (starts at 1500 - bar_height)
     center_y_map = {
         "top": 430,
         "center": 700,
-        "bottom": 920,
+        "bottom": 1040,
     }
     center_y = center_y_map.get(text_position, 700)
 
@@ -859,20 +863,33 @@ def render_pin(background: Image.Image, quote: str, text_position: str) -> Image
         line_box = draw.textbbox((0, 0), line, font=selected_font)
         line_width = line_box[2] - line_box[0]
         x = int((1000 - line_width) / 2)
-        y = start_y + index * (line_height + 12)
-        draw.text((x + 2, y + 2), line, font=selected_font, fill=(0, 0, 0, 165))
-        draw.text((x, y), line, font=selected_font, fill=(255, 255, 255, 255), stroke_width=1, stroke_fill=(255, 255, 255, 255))
+        y = start_y + index * (line_height + line_gap)
+        # Soft shadow, then main text with heavier stroke for more "volume" on the image
+        draw.text((x + 4, y + 4), line, font=selected_font, fill=(0, 0, 0, 120))
+        # Stroke scales slightly with font size for clarity at large sizes
+        sw = max(4, min(6, line_height // 18))
+        draw.text(
+            (x, y),
+            line,
+            font=selected_font,
+            fill=(255, 255, 255, 255),
+            stroke_width=sw,
+            stroke_fill=(30, 30, 40, 245),
+        )
 
-    cta_font = get_font(44, bold=True)
+    # Larger CTA to fill the white bar; size scales with bar height
+    cta_size = max(48, min(62, int(bar_height * 0.30)))
+    cta_font = get_font(cta_size, bold=True)
     cta_text = "Tap to learn more"
     cta_box = draw.textbbox((0, 0), cta_text, font=cta_font)
     cta_width = cta_box[2] - cta_box[0]
     cta_height = cta_box[3] - cta_box[1]
+    cta_y = 1500 - bar_height + (bar_height - cta_height) / 2
     draw.text(
-        ((1000 - cta_width) / 2, 1500 - bar_height + (bar_height - cta_height) / 2 - 6),
+        ((1000 - cta_width) / 2, cta_y),
         cta_text,
         font=cta_font,
-        fill=(31, 41, 55),
+        fill=(51, 65, 85),
     )
 
     return canvas.convert("RGB")
