@@ -1,12 +1,12 @@
 # API only (split deploy: Vercel/Netlify serves the React app, this serves /api only).
 # docker build -f Dockerfile.api -t pinterest-api .
 
-FROM python:3.11-slim
+FROM python:3.11-slim-bookworm
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libjq-dev \
-    oniguruma-dev \
+    libonig-dev \
     libxml2-dev \
     libxslt1-dev \
     zlib1g-dev \

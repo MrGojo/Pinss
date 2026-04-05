@@ -15,13 +15,14 @@ ARG REACT_APP_BACKEND_URL=
 ENV REACT_APP_BACKEND_URL=$REACT_APP_BACKEND_URL
 RUN yarn build
 
-FROM python:3.11-slim AS backend
+# Bookworm: stable package names (latest slim may use Trixie with different -dev packages)
+FROM python:3.11-slim-bookworm AS backend
 WORKDIR /app
 # Native deps: jq (transitive), lxml wheels or source build
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libjq-dev \
-    oniguruma-dev \
+    libonig-dev \
     libxml2-dev \
     libxslt1-dev \
     zlib1g-dev \
