@@ -810,16 +810,12 @@ def get_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFon
 
 
 def get_quote_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-    dancing_script = ROOT_DIR / "assets" / "fonts" / "DancingScript-Bold.ttf"
-    candidates = [
-        str(dancing_script),
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-    ]
-
-    for candidate in candidates:
-        if Path(candidate).exists():
-            return ImageFont.truetype(candidate, size=size)
-    return ImageFont.load_default()
+    """Bold sans headline (readable Pinterest-style pins). Script optional via env."""
+    if os.environ.get("QUOTE_FONT_SCRIPT", "").strip().lower() in ("1", "true", "yes"):
+        dancing_script = ROOT_DIR / "assets" / "fonts" / "DancingScript-Bold.ttf"
+        if Path(dancing_script).exists():
+            return ImageFont.truetype(str(dancing_script), size=size)
+    return get_font(size, bold=True)
 
 
 def wrap_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont, max_width: int) -> List[str]:
@@ -854,50 +850,51 @@ def render_pin(
     bottom_bar_text: str = "",
 ) -> Image.Image:
     canvas = ImageOps.fit(background, (1000, 1500), method=Image.Resampling.LANCZOS).convert("RGBA")
-    overlay = Image.new("RGBA", (1000, 1500), (0, 0, 0, 45))
+    overlay = Image.new("RGBA", (1000, 1500), (0, 0, 0, 38))
     canvas = Image.alpha_composite(canvas, overlay)
 
     draw = ImageDraw.Draw(canvas)
 
     quote_text = clean_text(quote) or "Create your momentum one step at a time"
-    quote_area_width = 820
+    quote_area_width = 900
 
-    line_height = 96
+    # Large bold headline (standard pin proportion ~ like reference samples)
+    line_height = 102
     selected_font = get_quote_font(line_height)
     lines = wrap_text(draw, quote_text, selected_font, quote_area_width)
-    while (len(lines) > 5 or max(len(line) for line in lines) > 52) and line_height > 68:
-        line_height -= 5
+    while (len(lines) > 4 or max(len(line) for line in lines) > 48) and line_height > 72:
+        line_height -= 4
         selected_font = get_quote_font(line_height)
         lines = wrap_text(draw, quote_text, selected_font, quote_area_width)
 
-    line_gap = 18
+    line_gap = max(16, int(line_height * 0.16))
     total_text_height = len(lines) * (line_height + line_gap)
 
     bar_label = clean_text(bottom_bar_text) or "Tap to learn more"
-    bar_wrap_width = 940
-    # Large bold sans: a few steps below script quote size, still very readable
-    bottom_font_size = max(72, min(88, line_height - 6))
+    bar_wrap_width = 960
+    # Bottom line: slightly smaller than headline, still very large and bold on the white bar
+    bottom_font_size = max(70, min(100, int(round(line_height * 0.88))))
     bottom_font = get_font(bottom_font_size, bold=True)
     bar_lines = wrap_text(draw, bar_label, bottom_font, bar_wrap_width)
-    while len(bar_lines) > 3 and bottom_font_size > 58:
-        bottom_font_size -= 4
+    while len(bar_lines) > 4 and bottom_font_size > 62:
+        bottom_font_size -= 3
         bottom_font = get_font(bottom_font_size, bold=True)
         bar_lines = wrap_text(draw, bar_label, bottom_font, bar_wrap_width)
 
-    line_spacing_bar = 14
+    line_spacing_bar = 12
     bar_line_heights: List[int] = []
     for bl in bar_lines:
         bb = draw.textbbox((0, 0), bl, font=bottom_font)
         bar_line_heights.append(bb[3] - bb[1])
     bar_text_block = sum(bar_line_heights) + (len(bar_lines) - 1) * line_spacing_bar if len(bar_lines) > 1 else sum(bar_line_heights)
-    bar_height = max(200, min(320, int(bar_text_block + 56)))
+    bar_height = max(220, min(360, int(bar_text_block + 64)))
 
-    draw.rectangle([(0, 1500 - bar_height), (1000, 1500)], fill=(255, 255, 255, 248))
+    draw.rectangle([(0, 1500 - bar_height), (1000, 1500)], fill=(255, 255, 255, 255))
 
     center_y_map = {
         "top": 430,
         "center": 700,
-        "bottom": 1040,
+        "bottom": 1100,
     }
     center_y = center_y_map.get(text_position, 700)
 
@@ -909,15 +906,17 @@ def render_pin(
         line_width = line_box[2] - line_box[0]
         x = int((1000 - line_width) / 2)
         y = start_y + index * (line_height + line_gap)
-        # Strong white-on-white outline (no dark stroke or black drop shadow) for a heavy, bold look
-        sw = max(8, min(14, line_height // 7))
+        # Soft stacked shadow (sample-style readability on busy photos), then crisp white headline
+        for ox, oy in ((6, 6), (5, 5), (4, 4), (3, 3), (2, 2)):
+            draw.text((x + ox, y + oy), line, font=selected_font, fill=(0, 0, 0, 55))
+        draw.text((x + 1, y + 1), line, font=selected_font, fill=(0, 0, 0, 85))
         draw.text(
             (x, y),
             line,
             font=selected_font,
             fill=(255, 255, 255, 255),
-            stroke_width=sw,
-            stroke_fill=(255, 255, 255, 255),
+            stroke_width=1,
+            stroke_fill=(255, 255, 255, 200),
         )
 
     y_bar_top = 1500 - bar_height
@@ -926,11 +925,15 @@ def render_pin(
         bb = draw.textbbox((0, 0), bl, font=bottom_font)
         bw = bb[2] - bb[0]
         bh = bb[3] - bb[1]
+        bx = (1000 - bw) / 2
+        by = cursor_y
+        for ox, oy in ((2, 2), (1, 1)):
+            draw.text((bx + ox, by + oy), bl, font=bottom_font, fill=(0, 0, 0, 40))
         draw.text(
-            ((1000 - bw) / 2, cursor_y),
+            (bx, by),
             bl,
             font=bottom_font,
-            fill=(23, 37, 84),
+            fill=(18, 18, 24),
         )
         cursor_y += bh + (line_spacing_bar if idx < len(bar_lines) - 1 else 0)
 
