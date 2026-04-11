@@ -798,15 +798,53 @@ def parse_file(file_name: str, file_bytes: bytes) -> pd.DataFrame:
         return standardize_dataframe(rebuilt)
 
 
-def get_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-    font_candidates = [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+def _truetype_font_candidates(bold: bool) -> List[str]:
+    """Linux (Docker), Windows, and macOS paths so we never fall back to tiny bitmap default()."""
+    if bold:
+        return [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+            str(ROOT_DIR / "assets" / "fonts" / "DejaVuSans-Bold.ttf"),
+            r"C:\Windows\Fonts\arialbd.ttf",
+            r"C:\Windows\Fonts\ARIALBD.TTF",
+            r"C:\Windows\Fonts\calibrib.ttf",
+            r"C:\Windows\Fonts\CALIBRIB.TTF",
+            r"C:\Windows\Fonts\segoeuib.ttf",
+            r"C:\Windows\Fonts\SegoeUI-Bold.ttf",
+            "/Library/Fonts/Arial Bold.ttf",
+            "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+            "/System/Library/Fonts/Supplemental/Arial.ttf",
+        ]
+    return [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        str(ROOT_DIR / "assets" / "fonts" / "DejaVuSans.ttf"),
+        r"C:\Windows\Fonts\arial.ttf",
+        r"C:\Windows\Fonts\ARIAL.TTF",
+        r"C:\Windows\Fonts\calibri.ttf",
+        r"C:\Windows\Fonts\segoeui.ttf",
+        "/Library/Fonts/Arial.ttf",
+        "/System/Library/Fonts/Supplemental/Arial.ttf",
     ]
-    for candidate in font_candidates:
-        if Path(candidate).exists():
-            return ImageFont.truetype(candidate, size=size)
-    return ImageFont.load_default()
+
+
+def get_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    size = max(8, int(size))
+    for candidate in _truetype_font_candidates(bold):
+        path = Path(candidate)
+        if path.is_file():
+            try:
+                return ImageFont.truetype(str(path), size=size)
+            except OSError:
+                continue
+    try:
+        return ImageFont.truetype("arial.ttf", size=size)
+    except OSError:
+        logging.getLogger(__name__).warning(
+            "Pin fonts: no TrueType file found (install fonts or add backend/assets/fonts/DejaVuSans-Bold.ttf); "
+            "Pillow default bitmap font is very small."
+        )
+        return ImageFont.load_default()
 
 
 def get_quote_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
@@ -856,27 +894,31 @@ def render_pin(
     draw = ImageDraw.Draw(canvas)
 
     quote_text = clean_text(quote) or "Create your momentum one step at a time"
-    quote_area_width = 900
+    quote_area_width = 880
 
-    # Large bold headline (standard pin proportion ~ like reference samples)
-    line_height = 102
+    # Big headline: start large; only shrink for very long copy (never below ~96px when TTF loads)
+    line_height = 120
     selected_font = get_quote_font(line_height)
     lines = wrap_text(draw, quote_text, selected_font, quote_area_width)
-    while (len(lines) > 4 or max(len(line) for line in lines) > 48) and line_height > 72:
-        line_height -= 4
+    while (len(lines) > 5 or max((len(line) for line in lines), default=0) > 52) and line_height > 96:
+        line_height -= 3
         selected_font = get_quote_font(line_height)
         lines = wrap_text(draw, quote_text, selected_font, quote_area_width)
 
-    line_gap = max(16, int(line_height * 0.16))
-    total_text_height = len(lines) * (line_height + line_gap)
+    line_gap = max(18, int(line_height * 0.14))
+    line_heights_px: List[int] = []
+    for ln in lines:
+        bb_ln = draw.textbbox((0, 0), ln, font=selected_font)
+        line_heights_px.append(bb_ln[3] - bb_ln[1])
+    total_text_height = sum(line_heights_px) + max(0, len(lines) - 1) * line_gap
 
     bar_label = clean_text(bottom_bar_text) or "Tap to learn more"
-    bar_wrap_width = 960
-    # Bottom line: slightly smaller than headline, still very large and bold on the white bar
-    bottom_font_size = max(70, min(100, int(round(line_height * 0.88))))
+    bar_wrap_width = 940
+    # Bottom strip: nearly as large as headline (sample-style), still bold sans
+    bottom_font_size = max(88, min(112, int(round(line_height * 0.92))))
     bottom_font = get_font(bottom_font_size, bold=True)
     bar_lines = wrap_text(draw, bar_label, bottom_font, bar_wrap_width)
-    while len(bar_lines) > 4 and bottom_font_size > 62:
+    while len(bar_lines) > 4 and bottom_font_size > 78:
         bottom_font_size -= 3
         bottom_font = get_font(bottom_font_size, bold=True)
         bar_lines = wrap_text(draw, bar_label, bottom_font, bar_wrap_width)
@@ -887,7 +929,7 @@ def render_pin(
         bb = draw.textbbox((0, 0), bl, font=bottom_font)
         bar_line_heights.append(bb[3] - bb[1])
     bar_text_block = sum(bar_line_heights) + (len(bar_lines) - 1) * line_spacing_bar if len(bar_lines) > 1 else sum(bar_line_heights)
-    bar_height = max(220, min(360, int(bar_text_block + 64)))
+    bar_height = max(240, min(380, int(bar_text_block + 72)))
 
     draw.rectangle([(0, 1500 - bar_height), (1000, 1500)], fill=(255, 255, 255, 255))
 
@@ -901,23 +943,26 @@ def render_pin(
     start_y = int(center_y - (total_text_height / 2))
     start_y = max(110, min(start_y, 1500 - bar_height - total_text_height - 50))
 
-    for index, line in enumerate(lines):
+    cursor_quote_y = float(start_y)
+    for line in lines:
         line_box = draw.textbbox((0, 0), line, font=selected_font)
         line_width = line_box[2] - line_box[0]
         x = int((1000 - line_width) / 2)
-        y = start_y + index * (line_height + line_gap)
-        # Soft stacked shadow (sample-style readability on busy photos), then crisp white headline
-        for ox, oy in ((6, 6), (5, 5), (4, 4), (3, 3), (2, 2)):
-            draw.text((x + ox, y + oy), line, font=selected_font, fill=(0, 0, 0, 55))
-        draw.text((x + 1, y + 1), line, font=selected_font, fill=(0, 0, 0, 85))
+        y = int(cursor_quote_y)
+        # Depth on photo, then heavy white + white outline (readable, “thick” look)
+        for ox, oy in ((6, 6), (5, 5), (4, 4), (3, 3)):
+            draw.text((x + ox, y + oy), line, font=selected_font, fill=(0, 0, 0, 60))
+        draw.text((x + 2, y + 2), line, font=selected_font, fill=(0, 0, 0, 95))
+        sw = max(2, min(5, line_height // 28))
         draw.text(
             (x, y),
             line,
             font=selected_font,
             fill=(255, 255, 255, 255),
-            stroke_width=1,
-            stroke_fill=(255, 255, 255, 200),
+            stroke_width=sw,
+            stroke_fill=(255, 255, 255, 255),
         )
+        cursor_quote_y += (line_box[3] - line_box[1]) + line_gap
 
     y_bar_top = 1500 - bar_height
     cursor_y = y_bar_top + (bar_height - bar_text_block) / 2
