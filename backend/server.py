@@ -106,6 +106,7 @@ class PinRecord(BaseModel):
     filename: str
     image_url: str
     created_at: str
+    pin_title_2nd_line: str = ""
 
 
 class GeneratePinsResponse(BaseModel):
@@ -140,6 +141,11 @@ REQUIRED_COLUMNS = [
     "Timing Link",
 ]
 
+# Parsed when present; not required for upload validation
+OPTIONAL_COLUMNS = [
+    "PIN TITLE 2ND LINE",
+]
+
 HEADER_ALIASES: Dict[str, List[str]] = {
     "PIC NO.": ["picno", "picno.", "picnumber", "pic"],
     "PIN NAME": ["pinname"],
@@ -151,6 +157,15 @@ HEADER_ALIASES: Dict[str, List[str]] = {
     "TAG TOPIC": ["tagtopic", "topic", "tag", "boardtopic", "pintitle2ndline"],
     "CREATOR": ["creator", "author", "owner"],
     "Timing Link": ["timinglink", "link", "url", "destinationlink", "timing", "links"],
+    # Excel: "PIN TITLE - 2ND LINE" → pintitle2ndline; rendered on bottom white bar of each pin
+    "PIN TITLE 2ND LINE": [
+        "pintitle2ndline",
+        "pintitle2ndlinerow",
+        "pintitlesecondline",
+        "pintitlesubline",
+        "pintitleline2",
+        "secondlinetitle",
+    ],
 }
 
 MANDATORY_COLUMNS = {"PIN NAME", "Quote"}
@@ -625,6 +640,7 @@ def parse_two_section_pin_layout(raw_dataframe: pd.DataFrame) -> pd.DataFrame:
             "Meta Description": get_column(4),
             "Hashtags": get_column(5),
             "TAG TOPIC": get_column(1),
+            "PIN TITLE 2ND LINE": get_column(1),
             "CREATOR": "",
             "Timing Link": get_column(6),
         }
@@ -707,6 +723,13 @@ def standardize_dataframe(dataframe: pd.DataFrame) -> pd.DataFrame:
 
     for canonical in REQUIRED_COLUMNS:
         source_column = resolved_columns.get(canonical)
+        if source_column:
+            parsed[canonical] = dataframe[source_column].fillna("").astype(str).map(clean_text)
+        else:
+            parsed[canonical] = ""
+
+    for canonical in OPTIONAL_COLUMNS:
+        source_column = resolve_column(canonical)
         if source_column:
             parsed[canonical] = dataframe[source_column].fillna("").astype(str).map(clean_text)
         else:
@@ -824,20 +847,21 @@ def wrap_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont, m
     return lines
 
 
-def render_pin(background: Image.Image, quote: str, text_position: str) -> Image.Image:
+def render_pin(
+    background: Image.Image,
+    quote: str,
+    text_position: str,
+    bottom_bar_text: str = "",
+) -> Image.Image:
     canvas = ImageOps.fit(background, (1000, 1500), method=Image.Resampling.LANCZOS).convert("RGBA")
     overlay = Image.new("RGBA", (1000, 1500), (0, 0, 0, 45))
     canvas = Image.alpha_composite(canvas, overlay)
 
     draw = ImageDraw.Draw(canvas)
-    bar_height = 180
-    draw.rectangle([(0, 1500 - bar_height), (1000, 1500)], fill=(255, 255, 255, 248))
 
     quote_text = clean_text(quote) or "Create your momentum one step at a time"
-    # Slightly narrower wrap so larger type still fits cleanly on 1000px-wide canvas
     quote_area_width = 820
 
-    # Larger default type for readability (incl. older viewers); scale down only when necessary
     line_height = 96
     selected_font = get_quote_font(line_height)
     lines = wrap_text(draw, quote_text, selected_font, quote_area_width)
@@ -848,7 +872,28 @@ def render_pin(background: Image.Image, quote: str, text_position: str) -> Image
 
     line_gap = 18
     total_text_height = len(lines) * (line_height + line_gap)
-    # "bottom" = lower on the canvas, closer to the white bar (starts at 1500 - bar_height)
+
+    bar_label = clean_text(bottom_bar_text) or "Tap to learn more"
+    bar_wrap_width = 940
+    # Large bold sans: a few steps below script quote size, still very readable
+    bottom_font_size = max(72, min(88, line_height - 6))
+    bottom_font = get_font(bottom_font_size, bold=True)
+    bar_lines = wrap_text(draw, bar_label, bottom_font, bar_wrap_width)
+    while len(bar_lines) > 3 and bottom_font_size > 58:
+        bottom_font_size -= 4
+        bottom_font = get_font(bottom_font_size, bold=True)
+        bar_lines = wrap_text(draw, bar_label, bottom_font, bar_wrap_width)
+
+    line_spacing_bar = 14
+    bar_line_heights: List[int] = []
+    for bl in bar_lines:
+        bb = draw.textbbox((0, 0), bl, font=bottom_font)
+        bar_line_heights.append(bb[3] - bb[1])
+    bar_text_block = sum(bar_line_heights) + (len(bar_lines) - 1) * line_spacing_bar if len(bar_lines) > 1 else sum(bar_line_heights)
+    bar_height = max(200, min(320, int(bar_text_block + 56)))
+
+    draw.rectangle([(0, 1500 - bar_height), (1000, 1500)], fill=(255, 255, 255, 248))
+
     center_y_map = {
         "top": 430,
         "center": 700,
@@ -864,33 +909,30 @@ def render_pin(background: Image.Image, quote: str, text_position: str) -> Image
         line_width = line_box[2] - line_box[0]
         x = int((1000 - line_width) / 2)
         y = start_y + index * (line_height + line_gap)
-        # Soft shadow, then main text with heavier stroke for more "volume" on the image
-        draw.text((x + 4, y + 4), line, font=selected_font, fill=(0, 0, 0, 120))
-        # Stroke scales slightly with font size for clarity at large sizes
-        sw = max(4, min(6, line_height // 18))
+        # Strong white-on-white outline (no dark stroke or black drop shadow) for a heavy, bold look
+        sw = max(8, min(14, line_height // 7))
         draw.text(
             (x, y),
             line,
             font=selected_font,
             fill=(255, 255, 255, 255),
             stroke_width=sw,
-            stroke_fill=(30, 30, 40, 245),
+            stroke_fill=(255, 255, 255, 255),
         )
 
-    # Larger CTA to fill the white bar; size scales with bar height
-    cta_size = max(48, min(62, int(bar_height * 0.30)))
-    cta_font = get_font(cta_size, bold=True)
-    cta_text = "Tap to learn more"
-    cta_box = draw.textbbox((0, 0), cta_text, font=cta_font)
-    cta_width = cta_box[2] - cta_box[0]
-    cta_height = cta_box[3] - cta_box[1]
-    cta_y = 1500 - bar_height + (bar_height - cta_height) / 2
-    draw.text(
-        ((1000 - cta_width) / 2, cta_y),
-        cta_text,
-        font=cta_font,
-        fill=(51, 65, 85),
-    )
+    y_bar_top = 1500 - bar_height
+    cursor_y = y_bar_top + (bar_height - bar_text_block) / 2
+    for idx, bl in enumerate(bar_lines):
+        bb = draw.textbbox((0, 0), bl, font=bottom_font)
+        bw = bb[2] - bb[0]
+        bh = bb[3] - bb[1]
+        draw.text(
+            ((1000 - bw) / 2, cursor_y),
+            bl,
+            font=bottom_font,
+            fill=(23, 37, 84),
+        )
+        cursor_y += bh + (line_spacing_bar if idx < len(bar_lines) - 1 else 0)
 
     return canvas.convert("RGB")
 
@@ -915,13 +957,14 @@ def create_pin_payload(
 ) -> Dict[str, Any]:
     pin_name = clean_text(row.get("PIN NAME"))
     quote = clean_text(row.get("Quote")) or pin_name
+    pin_title_2nd_line = clean_text(row.get("PIN TITLE 2ND LINE"))
     prompt = build_ai_prompt(
         row.get("Meta Title", ""),
         row.get("Meta Description", ""),
         row.get("TAG TOPIC", ""),
     )
 
-    rendered = render_pin(background_image, quote, text_position)
+    rendered = render_pin(background_image, quote, text_position, pin_title_2nd_line)
     base_slug = slugify_filename(pin_name or quote, index)
     file_name = make_unique_filename(session_dir, base_slug)
     file_path = session_dir / file_name
@@ -933,6 +976,7 @@ def create_pin_payload(
         "pin_name": pin_name,
         "pic_no": normalize_pic_no(row.get("PIC NO.")),
         "quote": quote,
+        "pin_title_2nd_line": pin_title_2nd_line,
         "pinrest_input": clean_text(row.get("PINREST INPUT")),
         "meta_title": clean_text(row.get("Meta Title")),
         "meta_description": clean_text(row.get("Meta Description")),

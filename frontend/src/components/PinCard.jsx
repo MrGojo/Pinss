@@ -35,6 +35,15 @@ export default function PinCard({ pin, backendUrl, onDownload }) {
         >
           {pin.pin_name || pin.filename}
         </p>
+        {pin.pin_title_2nd_line ? (
+          <p
+            className="line-clamp-2 text-sm font-bold leading-snug text-slate-700 dark:text-slate-200 sm:text-base"
+            data-testid={`pin-title-2nd-${pin.pin_id}`}
+            title={pin.pin_title_2nd_line}
+          >
+            {pin.pin_title_2nd_line}
+          </p>
+        ) : null}
         <p
           className="line-clamp-3 text-base font-semibold leading-snug text-slate-800 dark:text-slate-100 sm:text-lg mt-0.5 mb-1"
           data-testid={`pin-quote-text-${pin.pin_id}`}
