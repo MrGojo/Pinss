@@ -800,10 +800,16 @@ def parse_file(file_name: str, file_bytes: bytes) -> pd.DataFrame:
 
 def _truetype_font_candidates(bold: bool) -> List[str]:
     """Linux (Docker), Windows, and macOS paths so we never fall back to tiny bitmap default()."""
+    pil_fonts_dir = Path(ImageFont.__file__).resolve().parent / "fonts"
+    pil_bold = str(pil_fonts_dir / "DejaVuSans-Bold.ttf")
+    pil_regular = str(pil_fonts_dir / "DejaVuSans.ttf")
     if bold:
         return [
+            "DejaVuSans-Bold.ttf",
+            "Arial Bold.ttf",
             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
             "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+            pil_bold,
             str(ROOT_DIR / "assets" / "fonts" / "DejaVuSans-Bold.ttf"),
             r"C:\Windows\Fonts\arialbd.ttf",
             r"C:\Windows\Fonts\ARIALBD.TTF",
@@ -816,8 +822,11 @@ def _truetype_font_candidates(bold: bool) -> List[str]:
             "/System/Library/Fonts/Supplemental/Arial.ttf",
         ]
     return [
+        "DejaVuSans.ttf",
+        "Arial.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        pil_regular,
         str(ROOT_DIR / "assets" / "fonts" / "DejaVuSans.ttf"),
         r"C:\Windows\Fonts\arial.ttf",
         r"C:\Windows\Fonts\ARIAL.TTF",
@@ -831,12 +840,14 @@ def _truetype_font_candidates(bold: bool) -> List[str]:
 def get_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     size = max(8, int(size))
     for candidate in _truetype_font_candidates(bold):
-        path = Path(candidate)
-        if path.is_file():
-            try:
+        try:
+            path = Path(candidate)
+            # Try direct file path when present, otherwise let Pillow resolve font names.
+            if path.is_file():
                 return ImageFont.truetype(str(path), size=size)
-            except OSError:
-                continue
+            return ImageFont.truetype(candidate, size=size)
+        except OSError:
+            continue
     try:
         return ImageFont.truetype("arial.ttf", size=size)
     except OSError:
@@ -844,7 +855,11 @@ def get_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFon
             "Pin fonts: no TrueType file found (install fonts or add backend/assets/fonts/DejaVuSans-Bold.ttf); "
             "Pillow default bitmap font is very small."
         )
-        return ImageFont.load_default()
+        # Pillow >=10 supports a size argument; older versions ignore it.
+        try:
+            return ImageFont.load_default(size=size)
+        except TypeError:
+            return ImageFont.load_default()
 
 
 def get_quote_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
