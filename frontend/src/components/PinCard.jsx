@@ -2,10 +2,17 @@ import { Download } from "lucide-react";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
+const aspectClassByPinSize = {
+  standard: "aspect-[2/3]",
+  long: "aspect-[10/21]",
+  big: "aspect-[10/21]",
+};
+
 export default function PinCard({ pin, backendUrl, onDownload }) {
   const imageSource = pin.image_url?.startsWith("http")
     ? pin.image_url
     : `${backendUrl}${pin.image_url}`;
+  const aspectClass = aspectClassByPinSize[pin.pin_size] || "aspect-[2/3]";
 
   const handleDownload = () => {
     onDownload(pin);
@@ -17,39 +24,23 @@ export default function PinCard({ pin, backendUrl, onDownload }) {
       data-testid={`pin-card-${pin.pin_id}`}
     >
       <CardContent className="p-0">
-        <div className="relative aspect-[2/3] w-full overflow-hidden" data-testid={`pin-preview-image-wrap-${pin.pin_id}`}>
+        <div className={`relative ${aspectClass} w-full overflow-hidden`} data-testid={`pin-preview-image-wrap-${pin.pin_id}`}>
           <img
             src={imageSource}
-            alt={pin.quote}
+            alt={pin.pin_name || pin.quote || "Pinterest pin preview"}
             className="h-full w-full object-cover object-center"
             loading="lazy"
             data-testid={`pin-preview-image-${pin.pin_id}`}
           />
         </div>
       </CardContent>
-      <CardFooter className="flex flex-col items-stretch gap-2 border-t border-slate-100 p-4 pt-3 dark:border-slate-700">
+      <CardFooter className="flex flex-col items-stretch gap-3 border-t border-slate-100 p-4 dark:border-slate-700">
         <p
-          className="line-clamp-1 text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-300"
+          className="line-clamp-2 min-h-[2.75rem] text-sm font-semibold leading-snug text-slate-800 dark:text-slate-100"
           data-testid={`pin-name-text-${pin.pin_id}`}
           title={pin.pin_name || pin.filename}
         >
           {pin.pin_name || pin.filename}
-        </p>
-        {pin.pin_title_2nd_line ? (
-          <p
-            className="line-clamp-2 text-sm font-bold leading-snug text-slate-700 dark:text-slate-200 sm:text-base"
-            data-testid={`pin-title-2nd-${pin.pin_id}`}
-            title={pin.pin_title_2nd_line}
-          >
-            {pin.pin_title_2nd_line}
-          </p>
-        ) : null}
-        <p
-          className="line-clamp-3 text-base font-semibold leading-snug text-slate-800 dark:text-slate-100 sm:text-lg mt-0.5 mb-1"
-          data-testid={`pin-quote-text-${pin.pin_id}`}
-          title={pin.quote}
-        >
-          {pin.quote}
         </p>
         <Button
           onClick={handleDownload}

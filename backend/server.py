@@ -107,6 +107,10 @@ class PinRecord(BaseModel):
     image_url: str
     created_at: str
     pin_title_2nd_line: str = ""
+    pin_title_top: str = ""
+    pin_title_center: str = ""
+    pin_title_bottom: str = ""
+    pin_size: str = "standard"
 
 
 class GeneratePinsResponse(BaseModel):
@@ -144,7 +148,26 @@ REQUIRED_COLUMNS = [
 # Parsed when present; not required for upload validation
 OPTIONAL_COLUMNS = [
     "PIN TITLE 2ND LINE",
+    "PIN TITLE - TOP",
+    "PIN TITLE - CENTER",
+    "PIN TITLE - BOTTOM",
 ]
+
+PIN_SIZE_PRESETS: Dict[str, tuple[int, int]] = {
+    "standard": (1000, 1500),
+    "long": (1000, 2100),
+    "big": (1200, 2520),
+}
+
+FONT_SIZE_PRESETS: Dict[str, int] = {
+    "small": 72,
+    "medium": 96,
+    "large": 120,
+    "xl": 144,
+}
+
+VALID_FONT_STYLES = {"bold", "italic", "chewy"}
+VALID_FONT_SIZES = set(FONT_SIZE_PRESETS.keys())
 
 HEADER_ALIASES: Dict[str, List[str]] = {
     "PIC NO.": ["picno", "picno.", "picnumber", "pic"],
@@ -157,7 +180,7 @@ HEADER_ALIASES: Dict[str, List[str]] = {
     "TAG TOPIC": ["tagtopic", "topic", "tag", "boardtopic", "pintitle2ndline"],
     "CREATOR": ["creator", "author", "owner"],
     "Timing Link": ["timinglink", "link", "url", "destinationlink", "timing", "links"],
-    # Excel: "PIN TITLE - 2ND LINE" → pintitle2ndline; rendered on bottom white bar of each pin
+    # Excel: "PIN TITLE - 2ND LINE" / END LINE → bottom white bar of each pin
     "PIN TITLE 2ND LINE": [
         "pintitle2ndline",
         "pintitle2ndlinerow",
@@ -165,6 +188,21 @@ HEADER_ALIASES: Dict[str, List[str]] = {
         "pintitlesubline",
         "pintitleline2",
         "secondlinetitle",
+        "endline",
+    ],
+    "PIN TITLE - TOP": [
+        "pintitletop",
+        "pintitletopbold",
+        "pintitletoprow",
+    ],
+    "PIN TITLE - CENTER": [
+        "pintitlecenter",
+        "pintitlecenterbold",
+        "pintitlecentre",
+    ],
+    "PIN TITLE - BOTTOM": [
+        "pintitlebottom",
+        "pintitlebottombold",
     ],
 }
 
@@ -653,6 +691,95 @@ def parse_two_section_pin_layout(raw_dataframe: pd.DataFrame) -> pd.DataFrame:
     return parsed
 
 
+def is_multi_title_pin_layout(raw_dataframe: pd.DataFrame) -> bool:
+    if len(raw_dataframe) < 3:
+        return False
+
+    first_row = {
+        normalize_header_name(value)
+        for value in raw_dataframe.iloc[0].tolist()
+        if clean_text(value)
+    }
+    second_row = {
+        normalize_header_name(value)
+        for value in raw_dataframe.iloc[1].tolist()
+        if clean_text(value)
+    }
+
+    has_position_markers = bool(first_row.intersection({"top", "center", "bottom"}))
+    has_title_headers = bool(
+        second_row.intersection(
+            {
+                "pintitletop",
+                "pintitlecenter",
+                "pintitlebottom",
+                "pintitletopbold",
+                "pintitlecenterbold",
+                "pintitlebottombold",
+            }
+        )
+    )
+    return has_position_markers and "picno" in second_row and has_title_headers
+
+
+def parse_multi_title_pin_layout(raw_dataframe: pd.DataFrame) -> pd.DataFrame:
+    data = raw_dataframe.iloc[2:].copy().reset_index(drop=True)
+    if data.empty:
+        raise HTTPException(status_code=400, detail="No data rows found in multi-title PIN section.")
+
+    def get_column(index: int) -> pd.Series:
+        if index >= data.shape[1]:
+            return pd.Series([""] * len(data))
+        return data.iloc[:, index].fillna("").astype(str).map(clean_text)
+
+    parsed = pd.DataFrame(
+        {
+            "PIC NO.": get_column(0),
+            "PIN TITLE - TOP": get_column(1),
+            "PIN TITLE - CENTER": get_column(2),
+            "PIN TITLE - BOTTOM": get_column(3),
+            "PIN TITLE 2ND LINE": get_column(4),
+            "PIN NAME": get_column(5),
+            "Quote": get_column(2),
+            "PINREST INPUT": "",
+            "Meta Title": get_column(5),
+            "Meta Description": get_column(2),
+            "Hashtags": "",
+            "TAG TOPIC": "",
+            "CREATOR": "",
+            "Timing Link": "",
+        }
+    )
+
+    for index, row in parsed.iterrows():
+        titles = [
+            clean_text(row.get("PIN TITLE - TOP")),
+            clean_text(row.get("PIN TITLE - CENTER")),
+            clean_text(row.get("PIN TITLE - BOTTOM")),
+        ]
+        primary_quote = next((title for title in titles if title), clean_text(row.get("PIN NAME")))
+        parsed.at[index, "Quote"] = primary_quote
+        if not clean_text(row.get("Meta Title")):
+            parsed.at[index, "Meta Title"] = clean_text(row.get("PIN NAME")) or primary_quote
+
+    parsed = parsed[
+        (parsed["PIN NAME"] != "")
+        & (
+            (parsed["PIN TITLE - TOP"] != "")
+            | (parsed["PIN TITLE - CENTER"] != "")
+            | (parsed["PIN TITLE - BOTTOM"] != "")
+        )
+    ].reset_index(drop=True)
+
+    if parsed.empty:
+        raise HTTPException(
+            status_code=400,
+            detail="No valid rows with PIN NAME and at least one title (top/center/bottom) found.",
+        )
+
+    return parsed
+
+
 def detect_header_row(raw_dataframe: pd.DataFrame) -> int | None:
     scan_limit = min(len(raw_dataframe), 12)
     header_vocabulary = set()
@@ -771,6 +898,8 @@ def standardize_dataframe(dataframe: pd.DataFrame) -> pd.DataFrame:
 
 def parse_file(file_name: str, file_bytes: bytes) -> pd.DataFrame:
     raw = read_tabular_file(file_name, file_bytes, header=None)
+    if is_multi_title_pin_layout(raw):
+        return parse_multi_title_pin_layout(raw)
     if is_two_section_pin_layout(raw):
         return parse_two_section_pin_layout(raw)
 
@@ -871,6 +1000,96 @@ def get_quote_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     return get_font(size, bold=True)
 
 
+def _load_font_file(path: Path, size: int) -> ImageFont.FreeTypeFont | None:
+    if path.is_file():
+        try:
+            return ImageFont.truetype(str(path), size=size)
+        except OSError:
+            return None
+    return None
+
+
+def get_style_font(size: int, style: str) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    style_key = clean_text(style).lower()
+    fonts_dir = ROOT_DIR / "assets" / "fonts"
+
+    if style_key == "italic":
+        cormorant = _load_font_file(fonts_dir / "CormorantGaramond-Italic.ttf", size)
+        if cormorant:
+            return cormorant
+        return get_font(size, bold=False)
+
+    if style_key == "chewy":
+        chewy = _load_font_file(fonts_dir / "Chewy-Regular.ttf", size)
+        if chewy:
+            return chewy
+        return get_font(size, bold=True)
+
+    return get_font(size, bold=True)
+
+
+def normalize_font_style(value: str, default: str = "bold") -> str:
+    style = clean_text(value).lower()
+    return style if style in VALID_FONT_STYLES else default
+
+
+def normalize_font_size(value: str, default: str = "large") -> str:
+    size_key = clean_text(value).lower()
+    return size_key if size_key in VALID_FONT_SIZES else default
+
+
+def scaled_font_size(size_key: str, canvas_height: int) -> int:
+    base = FONT_SIZE_PRESETS[normalize_font_size(size_key)]
+    return max(48, int(round(base * (canvas_height / 1500))))
+
+
+def resolve_title_slots(title_count: int, title_slots_raw: str) -> List[str]:
+    valid_slots = {"top", "center", "bottom"}
+    if clean_text(title_slots_raw):
+        requested = [
+            slot
+            for slot in (clean_text(part).lower() for part in title_slots_raw.split(","))
+            if slot in valid_slots
+        ]
+        if requested:
+            return requested[: max(1, min(3, title_count))]
+
+    defaults = {
+        1: ["center"],
+        2: ["top", "bottom"],
+        3: ["top", "center", "bottom"],
+    }
+    return defaults.get(max(1, min(3, title_count)), ["top", "center", "bottom"])
+
+
+def build_title_blocks(
+    row: Dict[str, Any],
+    title_count: int,
+    title_slots_raw: str,
+    style_by_slot: Dict[str, str],
+    size_by_slot: Dict[str, str],
+) -> List[Dict[str, Any]]:
+    slot_text = {
+        "top": clean_text(row.get("PIN TITLE - TOP")),
+        "center": clean_text(row.get("PIN TITLE - CENTER")),
+        "bottom": clean_text(row.get("PIN TITLE - BOTTOM")),
+    }
+    blocks: List[Dict[str, Any]] = []
+    for slot in resolve_title_slots(title_count, title_slots_raw):
+        text = slot_text.get(slot, "")
+        if not text:
+            continue
+        blocks.append(
+            {
+                "text": text,
+                "position": slot,
+                "font_style": normalize_font_style(style_by_slot.get(slot, "bold")),
+                "font_size": normalize_font_size(size_by_slot.get(slot, "large")),
+            }
+        )
+    return blocks
+
+
 def wrap_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont, max_width: int) -> List[str]:
     words = text.split()
     if not words:
@@ -896,46 +1115,151 @@ def wrap_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont, m
     return lines
 
 
+def _measure_wrapped_block(
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    font: ImageFont.ImageFont,
+    max_width: int,
+) -> tuple[List[str], int, int]:
+    lines = wrap_text(draw, text, font, max_width)
+    line_gap = max(14, int(font.size * 0.14)) if hasattr(font, "size") else 18
+    line_heights: List[int] = []
+    for line in lines:
+        bb = draw.textbbox((0, 0), line, font=font)
+        line_heights.append(bb[3] - bb[1])
+    total_height = sum(line_heights) + max(0, len(lines) - 1) * line_gap
+    return lines, total_height, line_gap
+
+
+def _fit_font_for_text(
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    max_width: int,
+    start_size: int,
+    font_style: str,
+    min_size: int = 56,
+    max_lines: int = 5,
+) -> tuple[ImageFont.ImageFont, List[str], int, int]:
+    line_height = start_size
+    selected_font = get_style_font(line_height, font_style)
+    lines, total_height, line_gap = _measure_wrapped_block(draw, text, selected_font, max_width)
+    while (
+        (len(lines) > max_lines or max((len(line) for line in lines), default=0) > 52)
+        and line_height > min_size
+    ):
+        line_height -= 3
+        selected_font = get_style_font(line_height, font_style)
+        lines, total_height, line_gap = _measure_wrapped_block(draw, text, selected_font, max_width)
+    return selected_font, lines, total_height, line_gap
+
+
+def _draw_headline_block(
+    draw: ImageDraw.ImageDraw,
+    lines: List[str],
+    font: ImageFont.ImageFont,
+    canvas_width: int,
+    start_y: int,
+    line_gap: int,
+) -> None:
+    cursor_y = float(start_y)
+    line_height = font.size if hasattr(font, "size") else 96
+    for line in lines:
+        line_box = draw.textbbox((0, 0), line, font=font)
+        line_width = line_box[2] - line_box[0]
+        x = int((canvas_width - line_width) / 2)
+        y = int(cursor_y)
+        for ox, oy in ((6, 6), (5, 5), (4, 4), (3, 3)):
+            draw.text((x + ox, y + oy), line, font=font, fill=(0, 0, 0, 60))
+        draw.text((x + 2, y + 2), line, font=font, fill=(0, 0, 0, 95))
+        sw = max(2, min(5, line_height // 28))
+        draw.text(
+            (x, y),
+            line,
+            font=font,
+            fill=(255, 255, 255, 255),
+            stroke_width=sw,
+            stroke_fill=(255, 255, 255, 255),
+        )
+        cursor_y += (line_box[3] - line_box[1]) + line_gap
+
+
 def render_pin(
     background: Image.Image,
     quote: str,
     text_position: str,
     bottom_bar_text: str = "",
+    canvas_size: tuple[int, int] = (1000, 1500),
+    title_blocks: List[Dict[str, Any]] | None = None,
+    end_line_font_style: str = "bold",
+    end_line_font_size: str = "large",
 ) -> Image.Image:
-    canvas = ImageOps.fit(background, (1000, 1500), method=Image.Resampling.LANCZOS).convert("RGBA")
-    overlay = Image.new("RGBA", (1000, 1500), (0, 0, 0, 38))
+    width, height = canvas_size
+    canvas = ImageOps.fit(background, (width, height), method=Image.Resampling.LANCZOS).convert("RGBA")
+    overlay = Image.new("RGBA", (width, height), (0, 0, 0, 38))
     canvas = Image.alpha_composite(canvas, overlay)
-
     draw = ImageDraw.Draw(canvas)
 
-    quote_text = clean_text(quote) or "Create your momentum one step at a time"
-    quote_area_width = 880
-
-    # Big headline: start large; only shrink for very long copy (never below ~96px when TTF loads)
-    line_height = 120
-    selected_font = get_quote_font(line_height)
-    lines = wrap_text(draw, quote_text, selected_font, quote_area_width)
-    while (len(lines) > 5 or max((len(line) for line in lines), default=0) > 52) and line_height > 96:
-        line_height -= 3
-        selected_font = get_quote_font(line_height)
-        lines = wrap_text(draw, quote_text, selected_font, quote_area_width)
-
-    line_gap = max(18, int(line_height * 0.14))
-    line_heights_px: List[int] = []
-    for ln in lines:
-        bb_ln = draw.textbbox((0, 0), ln, font=selected_font)
-        line_heights_px.append(bb_ln[3] - bb_ln[1])
-    total_text_height = sum(line_heights_px) + max(0, len(lines) - 1) * line_gap
-
+    quote_area_width = int(width * 0.88)
     bar_label = clean_text(bottom_bar_text) or "Tap to learn more"
-    bar_wrap_width = 940
-    # Bottom strip: nearly as large as headline (sample-style), still bold sans
-    bottom_font_size = max(88, min(112, int(round(line_height * 0.92))))
-    bottom_font = get_font(bottom_font_size, bold=True)
+    bar_wrap_width = int(width * 0.94)
+
+    headline_blocks: List[Dict[str, Any]] = []
+    if title_blocks:
+        for block in title_blocks:
+            text = clean_text(block.get("text"))
+            if not text:
+                continue
+            font_size = scaled_font_size(block.get("font_size", "large"), height)
+            font_style = normalize_font_style(block.get("font_style", "bold"))
+            font, lines, total_height, line_gap = _fit_font_for_text(
+                draw,
+                text,
+                quote_area_width,
+                font_size,
+                font_style,
+                min_size=max(48, int(font_size * 0.55)),
+            )
+            headline_blocks.append(
+                {
+                    "position": block.get("position", "center"),
+                    "font": font,
+                    "lines": lines,
+                    "total_height": total_height,
+                    "line_gap": line_gap,
+                }
+            )
+    else:
+        quote_text = clean_text(quote) or "Create your momentum one step at a time"
+        font_size = scaled_font_size("large", height)
+        font, lines, total_height, line_gap = _fit_font_for_text(
+            draw,
+            quote_text,
+            quote_area_width,
+            font_size,
+            "bold",
+        )
+        headline_blocks.append(
+            {
+                "position": text_position,
+                "font": font,
+                "lines": lines,
+                "total_height": total_height,
+                "line_gap": line_gap,
+            }
+        )
+
+    reference_line_height = (
+        headline_blocks[0]["font"].size
+        if headline_blocks and hasattr(headline_blocks[0]["font"], "size")
+        else scaled_font_size("large", height)
+    )
+    bottom_font_size = scaled_font_size(end_line_font_size, height)
+    bottom_font_size = max(int(reference_line_height * 0.82), bottom_font_size)
+    bottom_font = get_style_font(bottom_font_size, normalize_font_style(end_line_font_style))
     bar_lines = wrap_text(draw, bar_label, bottom_font, bar_wrap_width)
-    while len(bar_lines) > 4 and bottom_font_size > 78:
+    while len(bar_lines) > 4 and bottom_font_size > int(reference_line_height * 0.55):
         bottom_font_size -= 3
-        bottom_font = get_font(bottom_font_size, bold=True)
+        bottom_font = get_style_font(bottom_font_size, normalize_font_style(end_line_font_style))
         bar_lines = wrap_text(draw, bar_label, bottom_font, bar_wrap_width)
 
     line_spacing_bar = 12
@@ -944,57 +1268,47 @@ def render_pin(
         bb = draw.textbbox((0, 0), bl, font=bottom_font)
         bar_line_heights.append(bb[3] - bb[1])
     bar_text_block = sum(bar_line_heights) + (len(bar_lines) - 1) * line_spacing_bar if len(bar_lines) > 1 else sum(bar_line_heights)
-    bar_height = max(240, min(380, int(bar_text_block + 72)))
+    min_bar = int(height * 0.14)
+    max_bar = int(height * 0.22)
+    bar_height = max(min_bar, min(max_bar, int(bar_text_block + int(height * 0.048))))
 
-    draw.rectangle([(0, 1500 - bar_height), (1000, 1500)], fill=(255, 255, 255, 255))
+    draw.rectangle([(0, height - bar_height), (width, height)], fill=(255, 255, 255, 255))
 
-    center_y_map = {
-        "top": 430,
-        "center": 700,
-        "bottom": 1100,
-    }
-    center_y = center_y_map.get(text_position, 700)
+    scale = height / 1500
+    top_padding = max(int(52 * scale), int(height * 0.045))
+    bottom_title_gap = int(64 * scale)
+    image_bottom = height - bar_height
 
-    start_y = int(center_y - (total_text_height / 2))
-    start_y = max(110, min(start_y, 1500 - bar_height - total_text_height - 50))
+    for block in headline_blocks:
+        position = block.get("position", "center")
+        block_height = block["total_height"]
 
-    cursor_quote_y = float(start_y)
-    for line in lines:
-        line_box = draw.textbbox((0, 0), line, font=selected_font)
-        line_width = line_box[2] - line_box[0]
-        x = int((1000 - line_width) / 2)
-        y = int(cursor_quote_y)
-        # Depth on photo, then heavy white + white outline (readable, “thick” look)
-        for ox, oy in ((6, 6), (5, 5), (4, 4), (3, 3)):
-            draw.text((x + ox, y + oy), line, font=selected_font, fill=(0, 0, 0, 60))
-        draw.text((x + 2, y + 2), line, font=selected_font, fill=(0, 0, 0, 95))
-        sw = max(2, min(5, line_height // 28))
-        draw.text(
-            (x, y),
-            line,
-            font=selected_font,
-            fill=(255, 255, 255, 255),
-            stroke_width=sw,
-            stroke_fill=(255, 255, 255, 255),
+        if position == "top":
+            # Anchor from the top edge (not vertically centered in the upper third)
+            start_y = top_padding
+        elif position == "bottom":
+            start_y = image_bottom - block_height - bottom_title_gap
+        else:
+            center_y = int(700 * scale)
+            start_y = int(center_y - (block_height / 2))
+
+        start_y = max(
+            top_padding,
+            min(start_y, image_bottom - block_height - int(40 * scale)),
         )
-        cursor_quote_y += (line_box[3] - line_box[1]) + line_gap
+        _draw_headline_block(draw, block["lines"], block["font"], width, start_y, block["line_gap"])
 
-    y_bar_top = 1500 - bar_height
+    y_bar_top = height - bar_height
     cursor_y = y_bar_top + (bar_height - bar_text_block) / 2
     for idx, bl in enumerate(bar_lines):
         bb = draw.textbbox((0, 0), bl, font=bottom_font)
         bw = bb[2] - bb[0]
         bh = bb[3] - bb[1]
-        bx = (1000 - bw) / 2
+        bx = (width - bw) / 2
         by = cursor_y
         for ox, oy in ((2, 2), (1, 1)):
             draw.text((bx + ox, by + oy), bl, font=bottom_font, fill=(0, 0, 0, 40))
-        draw.text(
-            (bx, by),
-            bl,
-            font=bottom_font,
-            fill=(18, 18, 24),
-        )
+        draw.text((bx, by), bl, font=bottom_font, fill=(18, 18, 24))
         cursor_y += bh + (line_spacing_bar if idx < len(bar_lines) - 1 else 0)
 
     return canvas.convert("RGB")
@@ -1017,9 +1331,19 @@ def create_pin_payload(
     text_position: str,
     background_image: Image.Image,
     generation_mode: str,
+    pin_size_key: str = "standard",
+    title_count: int = 1,
+    title_slots_raw: str = "",
+    style_by_slot: Dict[str, str] | None = None,
+    size_by_slot: Dict[str, str] | None = None,
+    end_line_font_style: str = "bold",
+    end_line_font_size: str = "large",
 ) -> Dict[str, Any]:
     pin_name = clean_text(row.get("PIN NAME"))
-    quote = clean_text(row.get("Quote")) or pin_name
+    pin_title_top = clean_text(row.get("PIN TITLE - TOP"))
+    pin_title_center = clean_text(row.get("PIN TITLE - CENTER"))
+    pin_title_bottom = clean_text(row.get("PIN TITLE - BOTTOM"))
+    quote = clean_text(row.get("Quote")) or pin_title_center or pin_title_top or pin_title_bottom or pin_name
     pin_title_2nd_line = clean_text(row.get("PIN TITLE 2ND LINE"))
     prompt = build_ai_prompt(
         row.get("Meta Title", ""),
@@ -1027,7 +1351,22 @@ def create_pin_payload(
         row.get("TAG TOPIC", ""),
     )
 
-    rendered = render_pin(background_image, quote, text_position, pin_title_2nd_line)
+    canvas_size = PIN_SIZE_PRESETS.get(pin_size_key, PIN_SIZE_PRESETS["standard"])
+    style_map = style_by_slot or {}
+    size_map = size_by_slot or {}
+    title_blocks = build_title_blocks(row, title_count, title_slots_raw, style_map, size_map)
+    has_split_titles = bool(pin_title_top or pin_title_center or pin_title_bottom)
+
+    rendered = render_pin(
+        background_image,
+        quote,
+        text_position,
+        pin_title_2nd_line,
+        canvas_size=canvas_size,
+        title_blocks=title_blocks if has_split_titles and title_blocks else None,
+        end_line_font_style=end_line_font_style,
+        end_line_font_size=end_line_font_size,
+    )
     base_slug = slugify_filename(pin_name or quote, index)
     file_name = make_unique_filename(session_dir, base_slug)
     file_path = session_dir / file_name
@@ -1040,6 +1379,10 @@ def create_pin_payload(
         "pic_no": normalize_pic_no(row.get("PIC NO.")),
         "quote": quote,
         "pin_title_2nd_line": pin_title_2nd_line,
+        "pin_title_top": pin_title_top,
+        "pin_title_center": pin_title_center,
+        "pin_title_bottom": pin_title_bottom,
+        "pin_size": pin_size_key,
         "pinrest_input": clean_text(row.get("PINREST INPUT")),
         "meta_title": clean_text(row.get("Meta Title")),
         "meta_description": clean_text(row.get("Meta Description")),
@@ -1109,6 +1452,17 @@ async def generate_pins(
     mode: str = Form("ai"),
     template_image: UploadFile | None = File(default=None),
     template_text_position: str = Form("center"),
+    pin_size: str = Form("standard"),
+    title_count: int = Form(3),
+    title_slots: str = Form(""),
+    title_top_font_style: str = Form("bold"),
+    title_center_font_style: str = Form("italic"),
+    title_bottom_font_style: str = Form("bold"),
+    title_top_font_size: str = Form("large"),
+    title_center_font_size: str = Form("large"),
+    title_bottom_font_size: str = Form("medium"),
+    end_line_font_style: str = Form("chewy"),
+    end_line_font_size: str = Form("large"),
     max_pins: int = Form(50),
     quotes_file: UploadFile | None = File(default=None),
     custom_images: List[UploadFile] = File(default=[]),
@@ -1125,6 +1479,24 @@ async def generate_pins(
 
     if template_text_position not in {"top", "center", "bottom"}:
         raise HTTPException(status_code=400, detail="template_text_position must be top, center, or bottom")
+
+    pin_size_key = clean_text(pin_size).lower()
+    if pin_size_key not in PIN_SIZE_PRESETS:
+        raise HTTPException(status_code=400, detail="pin_size must be standard, long, or big")
+
+    title_count_value = max(1, min(3, int(title_count)))
+    style_by_slot = {
+        "top": normalize_font_style(title_top_font_style),
+        "center": normalize_font_style(title_center_font_style, "italic"),
+        "bottom": normalize_font_style(title_bottom_font_style),
+    }
+    size_by_slot = {
+        "top": normalize_font_size(title_top_font_size),
+        "center": normalize_font_size(title_center_font_size),
+        "bottom": normalize_font_size(title_bottom_font_size),
+    }
+    end_line_style = normalize_font_style(end_line_font_style, "chewy")
+    end_line_size = normalize_font_size(end_line_font_size)
 
     total_limit = min(max_pins, 100)
     data_file_name = clean_text(data_file.filename)
@@ -1164,11 +1536,21 @@ async def generate_pins(
             skipped_warnings.append(f"Skipped row {row_index}: missing or invalid PIC NO.")
             continue
 
-        if not pin_name_value or not quote_value:
+        title_top_value = clean_text(row.get("PIN TITLE - TOP"))
+        title_center_value = clean_text(row.get("PIN TITLE - CENTER"))
+        title_bottom_value = clean_text(row.get("PIN TITLE - BOTTOM"))
+        has_title_text = bool(title_top_value or title_center_value or title_bottom_value or quote_value)
+
+        if not pin_name_value or not has_title_text:
             skipped_warnings.append(
-                f"Skipped row {row_index}: missing {'PIN NAME' if not pin_name_value else ''}{' and ' if (not pin_name_value and not quote_value) else ''}{'Quote' if not quote_value else ''}."
+                f"Skipped row {row_index}: missing {'PIN NAME' if not pin_name_value else ''}"
+                f"{' and ' if (not pin_name_value and not has_title_text) else ''}"
+                f"{'title/quote text' if not has_title_text else ''}."
             )
             continue
+
+        if not quote_value:
+            quote_value = title_center_value or title_top_value or title_bottom_value or pin_name_value
 
         row["PIN NAME"] = pin_name_value
         row["Quote"] = quote_value
@@ -1176,7 +1558,10 @@ async def generate_pins(
         valid_records.append(row)
 
     if not valid_records:
-        raise HTTPException(status_code=400, detail="No valid rows found with both PIN NAME and Quote.")
+        raise HTTPException(
+            status_code=400,
+            detail="No valid rows found with PIN NAME and at least one title or quote.",
+        )
 
     records = valid_records
 
@@ -1310,6 +1695,13 @@ async def generate_pins(
                 template_text_position,
                 row_backgrounds[index].copy(),
                 mode_used,
+                pin_size_key,
+                title_count_value,
+                title_slots,
+                style_by_slot,
+                size_by_slot,
+                end_line_style,
+                end_line_size,
             )
             async with progress_lock:
                 generation_progress["generated_count"] += 1

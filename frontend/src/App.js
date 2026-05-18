@@ -32,6 +32,25 @@ const API = BACKEND_URL ? `${BACKEND_URL}/api` : "/api";
 
 const textPositionOptions = ["top", "center", "bottom"];
 const batchSizeOptions = ["50", "100"];
+const pinSizeOptions = [
+  { value: "standard", label: "Standard (1000×1500)" },
+  { value: "long", label: "Long (1000×2100)" },
+  { value: "big", label: "Big Pins (1200×2520)" },
+];
+const titleCountOptions = ["1", "2", "3"];
+const titleSlotOptions = ["top", "center", "bottom"];
+const fontStyleOptions = [
+  { value: "italic", label: "Italic (Cormorant Garamond)" },
+  { value: "bold", label: "Bold" },
+  { value: "chewy", label: "Chewy" },
+];
+const fontSizeOptions = ["small", "medium", "large", "xl"];
+
+const defaultSlotsForCount = (count) => {
+  if (count === "1") return ["center"];
+  if (count === "2") return ["top", "bottom"];
+  return ["top", "center", "bottom"];
+};
 
 function App() {
   const [excelFile, setExcelFile] = useState(null);
@@ -42,6 +61,17 @@ function App() {
   const [customZipFile, setCustomZipFile] = useState(null);
   const [imageLinks, setImageLinks] = useState("");
   const [textPosition, setTextPosition] = useState("center");
+  const [pinSize, setPinSize] = useState("long");
+  const [titleCount, setTitleCount] = useState("3");
+  const [selectedTitleSlots, setSelectedTitleSlots] = useState(defaultSlotsForCount("3"));
+  const [titleTopFontStyle, setTitleTopFontStyle] = useState("bold");
+  const [titleCenterFontStyle, setTitleCenterFontStyle] = useState("italic");
+  const [titleBottomFontStyle, setTitleBottomFontStyle] = useState("bold");
+  const [titleTopFontSize, setTitleTopFontSize] = useState("large");
+  const [titleCenterFontSize, setTitleCenterFontSize] = useState("large");
+  const [titleBottomFontSize, setTitleBottomFontSize] = useState("medium");
+  const [endLineFontStyle, setEndLineFontStyle] = useState("chewy");
+  const [endLineFontSize, setEndLineFontSize] = useState("large");
   const [batchSize, setBatchSize] = useState("50");
   const [progressValue, setProgressValue] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -58,6 +88,25 @@ function App() {
   });
 
   const generatedCount = useMemo(() => pins.length, [pins]);
+
+  const handleTitleCountChange = (value) => {
+    setTitleCount(value);
+    setSelectedTitleSlots(defaultSlotsForCount(value));
+  };
+
+  const toggleTitleSlot = (slot) => {
+    const maxSlots = Number(titleCount);
+    setSelectedTitleSlots((current) => {
+      if (current.includes(slot)) {
+        if (current.length <= 1) return current;
+        return current.filter((item) => item !== slot);
+      }
+      if (current.length >= maxSlots) {
+        return [...current.slice(1), slot];
+      }
+      return [...current, slot];
+    });
+  };
 
   const getFilenameFromHeaders = (headers, fallback) => {
     const disposition = headers?.["content-disposition"] || "";
@@ -130,6 +179,17 @@ function App() {
       formData.append("image_links", imageLinks);
       formData.append("mapping_strategy", "pin_name_match_then_sequential");
       formData.append("template_text_position", textPosition);
+      formData.append("pin_size", pinSize);
+      formData.append("title_count", titleCount);
+      formData.append("title_slots", selectedTitleSlots.join(","));
+      formData.append("title_top_font_style", titleTopFontStyle);
+      formData.append("title_center_font_style", titleCenterFontStyle);
+      formData.append("title_bottom_font_style", titleBottomFontStyle);
+      formData.append("title_top_font_size", titleTopFontSize);
+      formData.append("title_center_font_size", titleCenterFontSize);
+      formData.append("title_bottom_font_size", titleBottomFontSize);
+      formData.append("end_line_font_style", endLineFontStyle);
+      formData.append("end_line_font_size", endLineFontSize);
       formData.append("max_pins", batchSize);
 
       const response = await axios.post(`${API}/pins/generate`, formData, {
@@ -262,7 +322,7 @@ function App() {
                 Bulk Pin Creator Studio
               </h1>
               <p className="max-w-2xl text-sm text-slate-600 sm:text-base dark:text-slate-300" data-testid="app-subheading-text">
-                Dual mode system: AI-generated backgrounds or custom image bulk mode, with 50/100 batch output and full metadata export.
+                Long & Big pin sizes, multi-title Excel (top/center/bottom), per-title fonts, and 50/100 batch export.
               </p>
             </div>
             <Button
@@ -277,7 +337,7 @@ function App() {
           </div>
         </header>
 
-        <section className="grid gap-8 lg:grid-cols-[320px_1fr]" data-testid="dashboard-main-grid">
+        <section className="grid gap-8 lg:grid-cols-[380px_1fr]" data-testid="dashboard-main-grid">
           <Card className="h-fit rounded-3xl border border-slate-200 bg-white/90 shadow-[0_8px_32px_rgba(15,23,42,0.1)] dark:border-slate-700 dark:bg-slate-900/90">
             <CardHeader>
               <CardTitle className="heading-font text-2xl text-slate-900 dark:text-slate-100" data-testid="upload-panel-title">
@@ -402,7 +462,171 @@ function App() {
               </div>
 
               <div className="space-y-2">
-                <Label data-testid="text-position-label">Template quote position</Label>
+                <Label data-testid="pin-size-label">Pin size</Label>
+                <Select value={pinSize} onValueChange={setPinSize}>
+                  <SelectTrigger className="bg-white dark:bg-slate-900" data-testid="pin-size-select-trigger">
+                    <SelectValue placeholder="Select pin size" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {pinSizeOptions.map((option) => (
+                      <SelectItem
+                        key={option.value}
+                        value={option.value}
+                        data-testid={`pin-size-select-option-${option.value}`}
+                      >
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/80 p-4 dark:border-slate-700 dark:bg-slate-800/50">
+                <div>
+                  <Label data-testid="title-count-label">Titles on pin</Label>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Excel: top, center, bottom columns. End line stays on the white bar.
+                  </p>
+                </div>
+                <Select value={titleCount} onValueChange={handleTitleCountChange}>
+                  <SelectTrigger className="bg-white dark:bg-slate-900" data-testid="title-count-select-trigger">
+                    <SelectValue placeholder="How many titles" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {titleCountOptions.map((option) => (
+                      <SelectItem key={option} value={option} data-testid={`title-count-option-${option}`}>
+                        {option === "3" ? "All 3 titles" : `${option} title${option === "1" ? "" : "s"}`}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                {titleCount !== "3" ? (
+                  <div className="space-y-2">
+                    <Label className="text-xs">Which positions</Label>
+                    <div className="flex flex-wrap gap-2">
+                      {titleSlotOptions.map((slot) => (
+                        <Button
+                          key={slot}
+                          type="button"
+                          size="sm"
+                          variant={selectedTitleSlots.includes(slot) ? "default" : "outline"}
+                          className={
+                            selectedTitleSlots.includes(slot)
+                              ? "rounded-full bg-[#E60023] text-white"
+                              : "rounded-full"
+                          }
+                          onClick={() => toggleTitleSlot(slot)}
+                          data-testid={`title-slot-toggle-${slot}`}
+                        >
+                          {slot.charAt(0).toUpperCase() + slot.slice(1)}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                {["top", "center", "bottom"].map((slot) => (
+                  <div key={slot} className="grid gap-2 sm:grid-cols-2">
+                    <div className="space-y-1">
+                      <Label className="text-xs capitalize">{slot} font style</Label>
+                      <Select
+                        value={
+                          slot === "top"
+                            ? titleTopFontStyle
+                            : slot === "center"
+                              ? titleCenterFontStyle
+                              : titleBottomFontStyle
+                        }
+                        onValueChange={
+                          slot === "top"
+                            ? setTitleTopFontStyle
+                            : slot === "center"
+                              ? setTitleCenterFontStyle
+                              : setTitleBottomFontStyle
+                        }
+                      >
+                        <SelectTrigger className="h-9 bg-white dark:bg-slate-900">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {fontStyleOptions.map((opt) => (
+                            <SelectItem key={`${slot}-style-${opt.value}`} value={opt.value}>
+                              {opt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs capitalize">{slot} font size</Label>
+                      <Select
+                        value={
+                          slot === "top"
+                            ? titleTopFontSize
+                            : slot === "center"
+                              ? titleCenterFontSize
+                              : titleBottomFontSize
+                        }
+                        onValueChange={
+                          slot === "top"
+                            ? setTitleTopFontSize
+                            : slot === "center"
+                              ? setTitleCenterFontSize
+                              : setTitleBottomFontSize
+                        }
+                      >
+                        <SelectTrigger className="h-9 bg-white dark:bg-slate-900">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {fontSizeOptions.map((size) => (
+                            <SelectItem key={`${slot}-size-${size}`} value={size}>
+                              {size.charAt(0).toUpperCase() + size.slice(1)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                ))}
+
+                <div className="grid gap-2 sm:grid-cols-2 border-t border-slate-200 pt-3 dark:border-slate-600">
+                  <div className="space-y-1">
+                    <Label className="text-xs">End line font style</Label>
+                    <Select value={endLineFontStyle} onValueChange={setEndLineFontStyle}>
+                      <SelectTrigger className="h-9 bg-white dark:bg-slate-900" data-testid="end-line-font-style-select">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {fontStyleOptions.map((opt) => (
+                          <SelectItem key={`end-style-${opt.value}`} value={opt.value}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">End line font size</Label>
+                    <Select value={endLineFontSize} onValueChange={setEndLineFontSize}>
+                      <SelectTrigger className="h-9 bg-white dark:bg-slate-900" data-testid="end-line-font-size-select">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {fontSizeOptions.map((size) => (
+                          <SelectItem key={`end-size-${size}`} value={size}>
+                            {size.charAt(0).toUpperCase() + size.slice(1)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label data-testid="text-position-label">Template quote position (legacy sheets)</Label>
                 <Select value={textPosition} onValueChange={setTextPosition}>
                   <SelectTrigger className="bg-white dark:bg-slate-900" data-testid="text-position-select-trigger">
                     <SelectValue placeholder="Select text position" />
